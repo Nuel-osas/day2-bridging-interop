@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "quotes": "node scripts/01-compare-routes.mjs",
-    "cctp": "node scripts/02-cctp-sepolia-to-sui.mjs",
+    "cctp:burn": "node scripts/02a-cctp-burn.mjs",
+    "cctp:attest": "node scripts/02b-cctp-attest.mjs",
+    "cctp:receive": "node scripts/02c-cctp-receive.mjs",
     "bridge-watch": "node scripts/03-sui-bridge-watch.mjs",
     "ika": "node scripts/04-ika-dwallet.mjs"
   },

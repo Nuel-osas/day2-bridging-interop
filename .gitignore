@@ -4,3 +4,4 @@ node_modules/
 !.env.example
 connect-app/node_modules/
 connect-app/dist/
+out/
