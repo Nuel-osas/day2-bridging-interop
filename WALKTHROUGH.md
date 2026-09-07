@@ -63,7 +63,12 @@ Measured 2026-09-07: 1 USDC on Sui became 0.9929 USDC on Base, COMPLETED in 20 s
 USDC as the input; native SUI trips the SDK's coin selection. Referrer fees: `referrerAddresses` with a `sui` entry in the SDK; not earned on
 pure USDC bridging without a destination swap.
 
-## Part 3: the settlement rail under the intents: CCTP (30 min)
+## Part 3: choosing and integrating a route (20 min)
+
+The decision matrix on the slide, then the LI.FI call and the widget from Part 2 above, then
+the three referrer-fee lines (Mayan referrerBps, LI.FI integrator fee, 1Click appFees).
+
+## Part 4: why into Sui is slow, and the CCTP rail (25 min)
 
 Burn on Sepolia before class. In class, show the attestation states and receive live.
 
@@ -78,7 +83,7 @@ Say clearly: V1, paused by Circle on 2026-12-01, Sui has no V2 yet. The five-cal
 
 ## Break (10 min)
 
-## Part 4: the native bridge (20 min)
+### The native bridge, one command
 
 ```bash
 pnpm bridge-watch
@@ -89,13 +94,13 @@ no protocol fee, 13 minutes from Ethereum, live limits 25M in and 50M out per 24
 assets and no USDC. Testnet limits are set to one unit, so no live testnet transfer today.
 The fake site at bridge-sui.vercel.app; the real one is bridge.sui.io.
 
-## Part 5: bridge security (20 min)
+## Part 5: when it breaks (15 min)
 
 Slides 20 to 22. Lead with Kelp DAO rsETH, April 2026: 292M USD, zero contract bugs, one
 verifier. Then Ronin, Nomad, Wormhole, Multichain. Then the two lists: questions before
 integrating, rules for your app. Full material in production-week/research/05-bridge-security.md.
 
-## Part 6: interoperability for builders (35 min)
+## Part 6: contracts that act on other chains (30 min)
 
 ```bash
 pnpm ika                       # read-only: coordinator, epoch, encryption key, the write path as a list
