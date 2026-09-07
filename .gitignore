@@ -1,0 +1,6 @@
+node_modules/
+.env
+.env.*
+!.env.example
+connect-app/node_modules/
+connect-app/dist/
