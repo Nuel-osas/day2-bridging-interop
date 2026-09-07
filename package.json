@@ -9,10 +9,12 @@
     "cctp:receive": "node scripts/02c-cctp-receive.mjs",
     "bridge-watch": "node scripts/03-sui-bridge-watch.mjs",
     "ika": "node scripts/04-ika-dwallet.mjs",
-    "hashi": "node scripts/05-hashi-deposit.mjs"
+    "hashi": "node scripts/05-hashi-deposit.mjs",
+    "mayan": "node scripts/06-mayan-out-of-sui.mjs"
   },
   "dependencies": {
     "@ika.xyz/sdk": "0.5.0",
+    "@mayanfinance/swap-sdk": "15.2.2",
     "@mysten/hashi": "0.6.13",
     "@mysten/sui": "^2.29.0",
     "viem": "^2.30.0"
