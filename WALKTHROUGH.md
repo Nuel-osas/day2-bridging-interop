@@ -21,6 +21,18 @@ route plus 0.25 USDC, and a deBridge quote to Solana with 1 second fulfilment ne
 `docs/how-intent-bridging-works.md`. Intent, auction, fill, proof, settlement. Who holds
 inventory risk. Why the user is paid before finality. Not to be confused with Sui Payment Intents.
 
+## Part 1b: the worked example, live (10 min)
+
+NEAR Intents: a solver auction settled in `intents.near`, reaching 35 chains including Sui.
+
+```bash
+SUI_NETWORK=mainnet pnpm intents               # dry quotes: Base -> Sui 50 s, Solana -> Sui 35 s, Sui -> Base 27 s
+SUI_NETWORK=mainnet pnpm intents --execute 1   # 1 SUI to USDC on Base; measured SUCCESS at 23 s
+```
+
+Read the deposit address (a Sui address minted for this intent), then the statuses. Three REST
+calls and one transfer. No SDK. Without a JWT the API adds 0.2 percent.
+
 ## Part 2: integrate a route in a dApp (30 min)
 
 LI.FI is the aggregator that answers for Sui. The quote response carries a ready-to-sign

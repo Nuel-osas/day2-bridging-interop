@@ -14,6 +14,7 @@ designs for builders.
 | `scripts/02a-cctp-burn.mjs` | Burn USDC on Sepolia for a Sui recipient with Circle CCTP V1. |
 | `scripts/02b-cctp-attest.mjs` | Poll Circle's attestation service. Shows not found, pending, complete. |
 | `scripts/02c-cctp-receive.mjs` | Mint native USDC on Sui testnet: the five-call PTB from Circle's reference. |
+| `scripts/08-near-intents.mjs` | NEAR Intents 1Click: a real solver auction that reaches Sui. Dry quotes, then 1 SUI to USDC on Base. Measured: 23 seconds. |
 | `scripts/06-mayan-out-of-sui.mjs` | The live intent fill: USDC on Sui to USDC on Base through Mayan, polling the explorer. Measured: 20 seconds. |
 | `scripts/07-lifi-swap-on-sui.mjs` | Same-chain swap on Sui through LI.FI; it returns PTB bytes you sign. |
 | `scripts/03-sui-bridge-watch.mjs` | Read the native Sui Bridge's deposits, approvals and claims from mainnet events. |
@@ -47,7 +48,9 @@ Sui CLI on testnet with gas, an EVM key with Sepolia ETH and Sepolia USDC (fauce
 
 ## Facts checked the night before class (2026-09-07)
 
-- deBridge DLN and Relay do not list Sui in their public chain APIs. LI.FI does, as a Move VM
+- NEAR Intents lists Sui (SUI and USDC) among 35 chains. Dry quotes: Base to Sui 50 s, Solana to Sui
+  35 s, Sui to Base 27 s. A real 1 SUI to Base USDC finished in 23 s. Fee into Sui about 2 percent today.
+- deBridge DLN and Relay do not list Sui in their public chain APIs. Garden and Chainflip do not either. LI.FI does, as a Move VM
   chain, id 9270000000000000, routing through Mayan MCTP, Mayan fast MCTP, Mayan Swift where
   available, and Allbridge.
 - Quotes into Sui for 100 USDC from Base, Arbitrum and Ethereum returned about 99.52 USDC,

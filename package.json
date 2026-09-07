@@ -11,7 +11,8 @@
     "ika": "node scripts/04-ika-dwallet.mjs",
     "hashi": "node scripts/05-hashi-deposit.mjs",
     "mayan": "node scripts/06-mayan-out-of-sui.mjs",
-    "lifi-swap": "node scripts/07-lifi-swap-on-sui.mjs"
+    "lifi-swap": "node scripts/07-lifi-swap-on-sui.mjs",
+    "intents": "node scripts/08-near-intents.mjs"
   },
   "dependencies": {
     "@ika.xyz/sdk": "0.5.0",
