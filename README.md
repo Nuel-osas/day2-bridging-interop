@@ -18,7 +18,7 @@ designs for builders.
 | `scripts/04-ika-dwallet.mjs` | Create a dWallet on Ika and sign for another chain from Sui. |
 | `connect-app/` | Wormhole Connect widget, Sepolia to Sui testnet, embedded in a page. |
 | `docs/how-intent-bridging-works.md` | The mechanism: intent, auction, fill, proof, settlement, and who holds the risk. |
-| `docs/` | Landscape, trust models, security history, phishing, Sui Bridge internals. |
+| `docs/research/` | The five sourced reports behind the class: Sui Bridge internals, CCTP on Sui, builder interop (Ika, Hashi, messaging), bridge security, intent bridging. Every claim dated and linked. |
 
 ## Quick start
 

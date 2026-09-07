@@ -31,7 +31,18 @@ console.log(`quote: ${amount} ${useSui ? "SUI" : "USDC"} on Sui -> ${q.expectedA
 console.log(`from ${me} to ${to}`);
 if (!execute) { console.log("\nquote only. add --execute to send."); process.exit(0); }
 
-const tx = await createSwapFromSuiMoveCalls(q, me, to, null, null, client);
+// Native SUI as input: split the input from the gas coin ourselves and hand it to the SDK,
+// otherwise the SDK picks the same coin object as both input and gas.
+import("@mysten/sui/transactions").then(() => {});
+const { Transaction } = await import("@mysten/sui/transactions");
+const built = new Transaction();
+built.setSender(me);
+let opts;
+if (useSui) {
+  const [coin] = built.splitCoins(built.gas, [built.pure.u64(BigInt(Math.round(amount * 1e9)))]);
+  opts = { builtTransaction: built, inputCoin: coin };
+}
+const tx = await createSwapFromSuiMoveCalls(q, me, to, null, null, client, opts);
 tx.setSender(me);
 const res = await client.signAndExecuteTransaction({ transaction: tx, signer: kp, include: { effects: true } });
 const digest = res.Transaction?.digest ?? res.digest;
