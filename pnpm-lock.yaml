@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@ika.xyz/sdk':
+        specifier: 0.5.0
+        version: 0.5.0(typescript@6.0.3)
+      '@mysten/hashi':
+        specifier: 0.6.13
+        version: 0.6.13(@mysten/sui@2.29.0(typescript@6.0.3))
       '@mysten/sui':
         specifier: ^2.29.0
         version: 2.29.0(typescript@6.0.3)
@@ -59,8 +65,20 @@ packages:
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
 
+  '@ika.xyz/ika-wasm@0.3.0':
+    resolution: {integrity: sha512-KIq+7qg0bt/qXlVMaT2guMfqX8ZRbz/s3+FozFq0Dq5HTeBgnnHNOT/aSapkWhyqP8naA4crLNBAFYM4jL13Lg==}
+
+  '@ika.xyz/sdk@0.5.0':
+    resolution: {integrity: sha512-L+Tks16sKxPv5oHD7PxAp74mrQvuxJY+1xyko8c481YTvU1fI7TJgk4HkzpFEH/DCIYOb4vEIewSkATgFfGswA==}
+    engines: {node: '>=18'}
+
   '@mysten/bcs@2.1.1':
     resolution: {integrity: sha512-IDYomoQ6+yvOIClBHmNdScttv+h/HbGGHLEdUmGQptR3YdqqLM5vJD28wf2QP/UXCEBkCoG7TOT6pFNw8ExYmA==}
+
+  '@mysten/hashi@0.6.13':
+    resolution: {integrity: sha512-v0GZTNNPmPxgns7ccmGCesxqUJUtW4ejSP/0gXBfcdFgYyjsjPqDRLFPNNirJYSz/9KLikNcGLuofNxniJjbrQ==}
+    peerDependencies:
+      '@mysten/sui': ^2.29.0
 
   '@mysten/sui@2.29.0':
     resolution: {integrity: sha512-k7q22+AFQ5SZXOH+a28M1J8iFVbMcWro9mt0Bb7GI1HZNsxJIyQT5Q3iZdrAM0hTwM4XQvzm5Y0f32f0nfiGxw==}
@@ -220,9 +238,30 @@ snapshots:
     dependencies:
       graphql: 17.0.2
 
+  '@ika.xyz/ika-wasm@0.3.0': {}
+
+  '@ika.xyz/sdk@0.5.0(typescript@6.0.3)':
+    dependencies:
+      '@ika.xyz/ika-wasm': 0.3.0
+      '@mysten/bcs': 2.1.1
+      '@mysten/sui': 2.29.0(typescript@6.0.3)
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+    transitivePeerDependencies:
+      - '@gql.tada/svelte-support'
+      - '@gql.tada/vue-support'
+      - typescript
+
   '@mysten/bcs@2.1.1':
     dependencies:
       '@mysten/utils': 0.4.1
+      '@scure/base': 2.4.0
+
+  '@mysten/hashi@0.6.13(@mysten/sui@2.29.0(typescript@6.0.3))':
+    dependencies:
+      '@mysten/sui': 2.29.0(typescript@6.0.3)
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
       '@scure/base': 2.4.0
 
   '@mysten/sui@2.29.0(typescript@6.0.3)':
