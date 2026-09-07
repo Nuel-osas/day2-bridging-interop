@@ -1,7 +1,10 @@
 // The live intent fill: send from Sui to Base through Mayan and watch it redeem in seconds.
 //
-//   pnpm mayan                       quote only (Sui USDC -> Base USDC, or SUI -> Base USDC with --sui)
-//   pnpm mayan --execute 2           send 2 units for real (mainnet, small), then poll the explorer
+//   pnpm mayan                       quote only (Sui USDC -> Base USDC; --sui quotes native SUI as input)
+//   pnpm mayan 1 --execute           send 1 USDC for real (mainnet, small), then poll the explorer
+//   Measured 2026-09-07: 1 USDC Sui -> 0.9929 USDC Base, COMPLETED in 20 s. Use USDC as the input:
+//   native SUI input hits the SDK's coin selection (input and gas from the same object); swap first
+//   with `pnpm lifi-swap 1.5` if you only hold SUI.
 //
 // Needs: SUI_NETWORK=mainnet, a Sui wallet with the input token plus a little SUI for gas,
 // and an EVM address to receive on Base (EVM_ADDRESS in .env or --to 0x...).
@@ -40,7 +43,7 @@ built.setSender(me);
 let opts;
 if (useSui) {
   const [coin] = built.splitCoins(built.gas, [built.pure.u64(BigInt(Math.round(amount * 1e9)))]);
-  opts = { builtTransaction: built, inputCoin: coin };
+  opts = { builtTransaction: built, inputCoin: { result: coin } };
 }
 const tx = await createSwapFromSuiMoveCalls(q, me, to, null, null, client, opts);
 tx.setSender(me);
