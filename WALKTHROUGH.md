@@ -42,12 +42,13 @@ with relay, CCTP, gas drop-off.
 Then the live fill out of Sui, mainnet, small:
 
 ```bash
-SUI_NETWORK=mainnet pnpm mayan --sui 2            # quote only
-SUI_NETWORK=mainnet pnpm mayan --sui 2 --execute  # send 2 SUI, receive USDC on Base, poll the explorer
+SUI_NETWORK=mainnet pnpm lifi-swap 1.5            # if you only hold SUI: swap to USDC on Sui via LI.FI (Aftermath)
+SUI_NETWORK=mainnet pnpm mayan 1                  # quote only
+SUI_NETWORK=mainnet pnpm mayan 1 --execute        # send 1 USDC, receive USDC on Base, poll the explorer
 ```
 
-Observed on the Mayan explorer the night before: 11 to 20 seconds to redeemed for Sui to Base
-and Solana. Referrer fees: `referrerAddresses` with a `sui` entry in the SDK; not earned on
+Measured 2026-09-07: 1 USDC on Sui became 0.9929 USDC on Base, COMPLETED in 20 seconds. Use
+USDC as the input; native SUI trips the SDK's coin selection. Referrer fees: `referrerAddresses` with a `sui` entry in the SDK; not earned on
 pure USDC bridging without a destination swap.
 
 ## Part 3: the settlement rail under the intents: CCTP (30 min)

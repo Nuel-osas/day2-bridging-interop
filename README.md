@@ -14,6 +14,8 @@ designs for builders.
 | `scripts/02a-cctp-burn.mjs` | Burn USDC on Sepolia for a Sui recipient with Circle CCTP V1. |
 | `scripts/02b-cctp-attest.mjs` | Poll Circle's attestation service. Shows not found, pending, complete. |
 | `scripts/02c-cctp-receive.mjs` | Mint native USDC on Sui testnet: the five-call PTB from Circle's reference. |
+| `scripts/06-mayan-out-of-sui.mjs` | The live intent fill: USDC on Sui to USDC on Base through Mayan, polling the explorer. Measured: 20 seconds. |
+| `scripts/07-lifi-swap-on-sui.mjs` | Same-chain swap on Sui through LI.FI; it returns PTB bytes you sign. |
 | `scripts/03-sui-bridge-watch.mjs` | Read the native Sui Bridge's deposits, approvals and claims from mainnet events. |
 | `scripts/04-ika-dwallet.mjs` | Create a dWallet on Ika and sign for another chain from Sui. |
 | `connect-app/` | Wormhole Connect widget, Sepolia to Sui testnet, embedded in a page. |
