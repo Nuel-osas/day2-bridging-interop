@@ -11,22 +11,22 @@ import { takeReady, refill, adoptOrphans, warmPresignObjects } from "./presignPo
 
 const curve = Curve.SECP256K1;
 const IKA_COIN = () => { const c = process.env.IKA_COIN_ID; if (!c) throw new Error("IKA_COIN_ID not set"); return c; };
-let ikaClient: IkaClient | null = null;
-let keysCache: UserShareEncryptionKeys | null = null;
+const GI: any = (globalThis as any).__ika ??= { ikaClient: null, keys: null, pp: null, dw: new Map<string, any>() };
 async function ika() {
-  if (!ikaClient) { ikaClient = new IkaClient({ suiClient: sui as any, config: getNetworkConfig("testnet"), cache: true }); await ikaClient.initialize(); }
-  return ikaClient;
+  if (!GI.ikaClient) { const c = new IkaClient({ suiClient: sui as any, config: getNetworkConfig("testnet"), cache: true }); await c.initialize(); GI.ikaClient = c; }
+  return GI.ikaClient as IkaClient;
 }
 async function keys() {
-  if (!keysCache) keysCache = await UserShareEncryptionKeys.fromRootSeedKey(new TextEncoder().encode(process.env.IKA_ROOT_SEED ?? "ika-wallet-demo-seed"), curve);
-  return keysCache;
+  if (!GI.keys) GI.keys = await UserShareEncryptionKeys.fromRootSeedKey(new TextEncoder().encode(process.env.IKA_ROOT_SEED ?? "ika-wallet-demo-seed"), curve);
+  return GI.keys as UserShareEncryptionKeys;
 }
-async function exec(tx: Transaction) {
+async function exec(tx: Transaction, log?: (s: string) => void) {
   const kp = operator(); tx.setSender(kp.toSuiAddress()); tx.setGasBudget(500_000_000n);
-  const bytes = await tx.build({ client: sui });
+  const t0 = Date.now(); const bytes = await tx.build({ client: sui }); log?.(`sui tx built in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   (tx as any).__builtAt = Date.now();
   const { signature } = await kp.signTransaction(bytes);
   const r: any = await sui.core.executeTransaction({ transaction: bytes, signatures: [signature], include: { effects: true, events: true } });
+  log?.(`sui tx executed in ${((Date.now() - t0) / 1000).toFixed(1)}s total`);
   const t = r.Transaction ?? r.transaction ?? r; if (t.effects?.status?.success === false) throw new Error(JSON.stringify(t.effects.status)); return t;
 }
 const evData = (t: any, re: RegExp) => { const e = (t.events ?? []).find((x: any) => re.test(x.eventType ?? "")); return e?.json?.event_data ?? {}; };
@@ -37,18 +37,17 @@ export function deriveAddresses(pub: Uint8Array) {
   return { ethAddress, btcAddress: btcAddress! };
 }
 
-function deps(log: (s: string) => void = () => {}) { return { ika: ikaClient!, ikaCoin: IKA_COIN, exec, evData, log }; }
+function deps(log: (s: string) => void = () => {}) { return { ika: GI.ikaClient, ikaCoin: IKA_COIN, exec, evData, log }; }
 /** Fire and forget: keep the shared presign pool topped up. */
-const dwCache = new Map<string, any>();
-let ppCache: any = null;
-async function protocolParams(c: IkaClient, dw: any) { if (!ppCache) ppCache = await c.getProtocolPublicParameters(dw); return ppCache; }
+const dwCache: Map<string, any> = GI.dw;
+async function protocolParams(c: IkaClient, dw: any) { if (!GI.pp) GI.pp = await c.getProtocolPublicParameters(dw); return GI.pp; }
 export async function warmPool(log?: (s: string) => void, wallet?: Wallet) {
   const c = await ika(); const d = deps(log);
   void (async () => {
-    try { await adoptOrphans(d); } catch {}
-    try { if (wallet?.dwalletId) { const dw = await c.getDWalletInParticularState(wallet.dwalletId, "Active"); dwCache.set(wallet.dwalletId, dw); await protocolParams(c, dw); } } catch {}
     try { await warmPresignObjects(d); } catch {}
+    try { if (wallet?.dwalletId) { const dw = await c.getDWalletInParticularState(wallet.dwalletId, "Active"); dwCache.set(wallet.dwalletId, dw); await protocolParams(c, dw); } } catch {}
     void refill(d);
+    try { await adoptOrphans(d); } catch {}
   })();
 }
 
@@ -114,7 +113,7 @@ export async function signKeccak(w: Wallet, message: Uint8Array, log: (s: string
   const tx = new Transaction(); const it = new IkaTransaction({ ikaClient: c, transaction: tx, userShareEncryptionKeys: k });
   const approval = it.approveMessage({ dWalletCap: w.dwalletCapId, curve, signatureAlgorithm: SignatureAlgorithm.ECDSASecp256k1, hashScheme: Hash.KECCAK256, message });
   await it.requestSign({ dWallet: dw, messageApproval: approval, hashScheme: Hash.KECCAK256, verifiedPresignCap: it.verifyPresignCap({ presign }), presign, message, signatureScheme: SignatureAlgorithm.ECDSASecp256k1, userSignMessage: userSig, ikaCoin: tx.object(IKA_COIN()), suiCoin: tx.gas } as any);
-  const t = await exec(tx);
+  const t = await exec(tx, log);
   const signId = evData(t, /SignRequestEvent/).sign_id;
   log("sign request on Sui confirmed; waiting for the network MPC round");
   const sign: any = await c.getSignInParticularState(signId, curve, SignatureAlgorithm.ECDSASecp256k1, "Completed");

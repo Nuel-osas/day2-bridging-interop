@@ -15,9 +15,9 @@ const TARGET_DEPTH = Number(process.env.PRESIGN_POOL_DEPTH ?? 1);
 type Entry = { presignId: string; requestedAt: string };
 const load = (): Entry[] => (existsSync(FILE) ? JSON.parse(readFileSync(FILE, "utf8")) : []);
 const save = (e: Entry[]) => { mkdirSync(join(process.cwd(), "data"), { recursive: true }); writeFileSync(FILE, JSON.stringify(e, null, 2)); };
-let refilling: Promise<void> | null = null;
-const presignObjects = new Map<string, any>();   // presignId -> Completed presign object, fetched once
-let adoptedOnce = false;
+// Shared across Next route bundles: module state is per-route in dev, globalThis is per process.
+const G: any = (globalThis as any).__ikaPool ??= { refilling: null as Promise<void> | null, presignObjects: new Map<string, any>(), adoptedOnce: false };
+const presignObjects: Map<string, any> = G.presignObjects;
 
 type Deps = { ika: any; ikaCoin: () => string; exec: (tx: Transaction) => Promise<any>; evData: (t: any, re: RegExp) => any; log?: (s: string) => void };
 
@@ -34,17 +34,17 @@ export async function takeReady(d: Deps): Promise<{ presignId: string; presign: 
 
 /** Buy presigns until the pool holds TARGET_DEPTH. Safe to call often; runs at most once at a time. */
 export function refill(d: Deps): Promise<void> {
-  if (refilling) return refilling;
-  refilling = (async () => {
+  if (G.refilling) return G.refilling;
+  G.refilling = (async () => {
     try {
       while (load().length < TARGET_DEPTH) {
         const id = await requestOne(d);
         d.log?.(`presign pool: +1 (${id.slice(0, 10)}…), depth ${load().length}`);
       }
     } catch (e: any) { d.log?.("presign pool refill failed: " + String(e.message ?? e).slice(0, 80)); }
-    finally { refilling = null; }
+    finally { G.refilling = null; }
   })();
-  return refilling;
+  return G.refilling;
 }
 
 async function requestOne(d: Deps): Promise<string> {
@@ -67,7 +67,7 @@ export async function warmPresignObjects(d: Deps) {
 
 /** Presign caps the operator already owns but never consumed: paid for, so use them first. */
 export async function adoptOrphans(d: Deps) {
-  if (adoptedOnce) return; adoptedOnce = true;
+  if (G.adoptedOnce) return; G.adoptedOnce = true;
   try {
     const cfg = getNetworkConfig("testnet"); const me = operator().toSuiAddress();
     const known = new Set(load().map((e) => e.presignId));
