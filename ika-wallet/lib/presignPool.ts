@@ -13,10 +13,12 @@ import { sui, operator } from "./sui";
 import { hasDb, q, tryLock, LOCK_REFILL } from "./db";
 
 export type PoolKey = "secp" | "ed";
-export const POOLS: Record<PoolKey, { curve: Curve; alg: SignatureAlgorithm }> = {
-  secp: { curve: Curve.SECP256K1, alg: SignatureAlgorithm.ECDSASecp256k1 },
-  ed: { curve: Curve.ED25519, alg: SignatureAlgorithm.EdDSA },
+// onChainCurve is the numeric curve in the Presign object (0 secp256k1, 2 ed25519); the SDK enum values are strings.
+export const POOLS: Record<PoolKey, { curve: Curve; alg: SignatureAlgorithm; onChainCurve: number }> = {
+  secp: { curve: Curve.SECP256K1, alg: SignatureAlgorithm.ECDSASecp256k1, onChainCurve: 0 },
+  ed: { curve: Curve.ED25519, alg: SignatureAlgorithm.EdDSA, onChainCurve: 2 },
 };
+const poolFor = (p: any): PoolKey | null => { const c = Number(p?.curve); return c === 0 ? "secp" : c === 2 ? "ed" : null; };
 const FILE = join(process.cwd(), "data", "presigns.json");
 const TARGET_DEPTH = Number(process.env.PRESIGN_POOL_DEPTH ?? 1);
 type Entry = { presignId: string; pool?: PoolKey; requestedAt: string };
@@ -40,8 +42,13 @@ async function takeOne(k: PoolKey): Promise<string | null> {
 export async function takeReady(d: Deps, k: PoolKey = "secp"): Promise<{ presignId: string; presign: any } | null> {
   for (let i = 0; i < 8; i++) {
     const id = await takeOne(k); if (!id) return null;
-    const cached = presignObjects.get(id); d.log?.(`presign object cache ${cached ? "hit" : "miss"} (${presignObjects.size} cached)`); if (cached) { presignObjects.delete(id); return { presignId: id, presign: cached }; }
-    try { const p: any = await d.ika.getPresign(id); if (p?.state?.Completed) return { presignId: id, presign: p }; } catch {}
+    const cached = presignObjects.get(id); d.log?.(`presign object cache ${cached ? "hit" : "miss"} (${presignObjects.size} cached)`);
+    let p: any = cached; if (!p) { try { p = await d.ika.getPresign(id); } catch { continue; } }
+    presignObjects.delete(id);
+    if (!p?.state?.Completed) continue;
+    const actual = poolFor(p);
+    if (actual !== k) { d.log?.(`presign ${id.slice(0, 10)}… is ${actual ?? "unknown"}, not ${k}; refiling it`); if (actual) await add(actual, id, "refiled"); continue; }
+    return { presignId: id, presign: p };
   }
   return null;
 }
@@ -88,7 +95,7 @@ export async function adoptOrphans(d: Deps) {
     for (const o of owned.objects ?? []) {
       const presignId = o?.json?.presign_id ?? (await (sui.core as any).getObject({ objectId: o.id, include: { json: true } }).catch(() => null))?.object?.json?.presign_id;
       if (!presignId || known.has(presignId)) continue;
-      try { const p: any = await d.ika.getPresign(presignId); if (p?.state?.Completed) { const k: PoolKey = Number(p.curve) === Number(Curve.ED25519) ? "ed" : "secp"; await add(k, presignId, "adopted"); added++; } } catch {}
+      try { const p: any = await d.ika.getPresign(presignId); const k = poolFor(p); if (p?.state?.Completed && k) { await add(k, presignId, "adopted"); added++; } } catch {}
     }
     if (added) d.log?.(`presign pool: adopted ${added} unused presign(s) already paid for`);
   } catch (e: any) { d.log?.("presign pool: orphan scan skipped, " + String(e.message ?? e).slice(0, 60)); }
