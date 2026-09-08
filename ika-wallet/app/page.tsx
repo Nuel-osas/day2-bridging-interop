@@ -1,102 +1,193 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-type WalletResp = { user: string; wallet: { dwalletId: string; dwalletCapId: string; ethAddress: string; btcAddress: string }; balances: { sepoliaEth: string; testnetBtc: string }; steps: string[] };
-const card: React.CSSProperties = { background: "#111a2e", border: "1px solid #1f2a44", borderRadius: 14, padding: 20, marginBottom: 16 };
-const mono: React.CSSProperties = { fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13, wordBreak: "break-all" };
-const btn: React.CSSProperties = { background: "#2563eb", color: "#fff", border: 0, borderRadius: 10, padding: "10px 16px", fontSize: 14, cursor: "pointer" };
-const input: React.CSSProperties = { background: "#0b1220", color: "#e5e7eb", border: "1px solid #1f2a44", borderRadius: 10, padding: "10px 12px", fontSize: 14, width: "100%", boxSizing: "border-box" };
+type WalletResp = { user: string; wallet: { dwalletId: string; dwalletCapId: string; ethAddress: string; btcAddress: string; createdAt: string }; balances: { sepoliaEth: string; testnetBtc: string }; steps: string[] };
+type Step = { key: string; label: string; detail: string };
+const STEPS: Step[] = [
+  { key: "signin", label: "Sign in", detail: "Your login is the account id. No wallet, no seed phrase." },
+  { key: "dkg", label: "Generate the key on Ika", detail: "Distributed key generation between the operator and the Ika network. No party ever holds the whole key." },
+  { key: "active", label: "dWallet active on Sui", detail: "A DWalletCap on Sui now authorises every signature for this key." },
+  { key: "derive", label: "Derive addresses", detail: "One secp256k1 public key becomes an Ethereum address and a Bitcoin address." },
+];
 
 export default function Page() {
   const [cfg, setCfg] = useState<{ googleClientId: string | null } | null>(null);
   const [user, setUser] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [w, setW] = useState<WalletResp | null>(null);
+  const [phase, setPhase] = useState<"idle" | "creating" | "ready">("idle");
+  const [stepIdx, setStepIdx] = useState(0);
   const [log, setLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [to, setTo] = useState(""); const [amount, setAmount] = useState("0.001");
+  const [view, setView] = useState<"wallet" | "receive" | "send" | "how">("wallet");
+  const [chain, setChain] = useState<"eth" | "btc">("eth");
+  const [to, setTo] = useState(""); const [amount, setAmount] = useState("0.0001");
   const [txHash, setTxHash] = useState<string | null>(null);
-  const push = (s: string) => setLog((l) => [...l, `${new Date().toLocaleTimeString()}  ${s}`]);
+  const logRef = useRef<HTMLDivElement>(null);
+  const push = (s: string) => setLog((l) => [...l, `${new Date().toLocaleTimeString([], { hour12: false })}  ${s}`]);
+  useEffect(() => { logRef.current?.scrollTo({ top: 1e9 }); }, [log]);
 
-  useEffect(() => { fetch("/api/config").then((r) => r.json()).then(setCfg); fetch("/api/auth/me").then((r) => r.json()).then((j) => setUser(j.user)); }, []);
+  useEffect(() => { fetch("/api/config").then((r) => r.json()).then(setCfg); fetch("/api/auth/me").then((r) => r.json()).then((j) => { if (j.user) { setUser(j.user); setStepIdx(1); } }); }, []);
   useEffect(() => {
     if (!cfg?.googleClientId || user) return;
     const s = document.createElement("script"); s.src = "https://accounts.google.com/gsi/client"; s.async = true;
-    s.onload = () => { (window as any).google.accounts.id.initialize({ client_id: cfg.googleClientId, callback: async (resp: any) => { const r = await fetch("/api/auth/google", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ credential: resp.credential }) }); const j = await r.json(); if (j.user) setUser(j.user); } }); (window as any).google.accounts.id.renderButton(document.getElementById("gbtn"), { theme: "filled_black", size: "large", text: "signin_with" }); };
+    s.onload = () => { const g = (window as any).google; g.accounts.id.initialize({ client_id: cfg.googleClientId, callback: async (resp: any) => { const r = await fetch("/api/auth/google", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ credential: resp.credential }) }); const j = await r.json(); if (j.user) { setUser(j.user); setStepIdx(1); } } }); g.accounts.id.renderButton(document.getElementById("gbtn"), { theme: "filled_black", size: "large", shape: "rectangular", text: "signin_with" }); };
     document.body.appendChild(s);
   }, [cfg, user]);
 
-  async function demoLogin() { const r = await fetch("/api/auth/demo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) }); const j = await r.json(); if (j.user) setUser(j.user); else push(j.error); }
+  async function demoLogin() { const r = await fetch("/api/auth/demo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) }); const j = await r.json(); if (j.user) { setUser(j.user); setStepIdx(1); } else push(j.error); }
   async function loadWallet() {
-    setBusy(true); push("looking up your dWallet on Ika (first time: distributed key generation, about 20 s)");
-    const r = await fetch("/api/wallet"); const j = await r.json(); (j.steps ?? []).forEach(push);
-    if (j.wallet) { setW(j); push("ready"); } else push("error: " + j.error);
+    setBusy(true); setPhase("creating"); setStepIdx(1); push("checking Ika for a dWallet bound to this login");
+    const t = setInterval(() => setStepIdx((i) => (i < 2 ? i + 0 : i)), 1000);
+    const r = await fetch("/api/wallet"); const j = await r.json(); clearInterval(t);
+    (j.steps ?? []).forEach((s: string) => { push(s); if (/finish DKG/i.test(s)) setStepIdx(2); if (/active/i.test(s)) setStepIdx(3); });
+    if (j.wallet) { setW(j); setStepIdx(4); setPhase("ready"); push("ready"); } else { push("error: " + j.error); setPhase("idle"); }
     setBusy(false);
   }
   async function send() {
-    setBusy(true); setTxHash(null); push(`sending ${amount} ETH to ${to}`);
+    setBusy(true); setTxHash(null); push(`send ${amount} ETH to ${to}`);
     const r = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to, amount }) }); const j = await r.json(); (j.steps ?? []).forEach(push);
-    if (j.hash) { setTxHash(j.hash); push("broadcast: " + j.hash); } else push("error: " + j.error);
+    if (j.hash) { setTxHash(j.hash); push("broadcast " + j.hash); setView("wallet"); loadWallet(); } else push("error: " + j.error);
     setBusy(false);
   }
-  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); setUser(null); setW(null); setLog([]); }
-  useEffect(() => { if (user && !w) loadWallet(); }, [user]);
+  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); setUser(null); setW(null); setLog([]); setPhase("idle"); setStepIdx(0); setView("wallet"); }
+  useEffect(() => { if (user && !w && phase === "idle") loadWallet(); }, [user]);
+
+  const addr = chain === "eth" ? w?.wallet.ethAddress : w?.wallet.btcAddress;
 
   return (
-    <main style={{ maxWidth: 680, margin: "40px auto", padding: 16 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>Sign in with Gmail. Get a wallet on every chain.</h1>
-      <p style={{ opacity: 0.7, marginTop: 6 }}>One Ika dWallet, controlled from Sui, gives you an Ethereum address and a Bitcoin address. Receive on either. Send on Sepolia. Testnet only.</p>
+    <main style={{ maxWidth: 760, margin: "0 auto", padding: "40px 20px 80px" }}>
+      <header className="row" style={{ justifyContent: "space-between", marginBottom: 28 }}>
+        <div>
+          <div className="kicker">ika wallet · sui testnet</div>
+          <h1 style={{ fontSize: 22, fontWeight: 600, margin: "6px 0 0" }}>one login, every chain</h1>
+        </div>
+        {user && <div className="row"><span style={{ color: "var(--mute)", fontSize: 12 }}>{user}</span><button className="btn ghost" onClick={logout}>sign out</button></div>}
+      </header>
 
       {!user && (
-        <div style={card}>
-          {cfg?.googleClientId ? <div id="gbtn" /> : <p style={{ opacity: 0.7, marginTop: 0 }}>Google sign-in is not configured on this server; use the demo login.</p>}
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <input style={input} placeholder="you@gmail.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-            <button style={btn} onClick={demoLogin}>Continue</button>
-          </div>
-        </div>
+        <section className="card">
+          <div className="kicker">01 · sign in</div>
+          <p style={{ color: "var(--mute)", margin: "8px 0 16px", lineHeight: 1.6 }}>Sign in with Google. You get an Ethereum address and a Bitcoin address backed by one Ika dWallet controlled from Sui. No extension, no seed phrase, no private key anywhere.</p>
+          {cfg?.googleClientId ? <div id="gbtn" style={{ marginBottom: 12 }} /> : <div className="kicker" style={{ marginBottom: 8 }}>google not configured on this server · demo login</div>}
+          <div className="row"><input className="input" placeholder="you@gmail.com" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && demoLogin()} /><button className="btn" onClick={demoLogin}>continue</button></div>
+        </section>
       )}
 
-      {user && (
-        <div style={card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div><div style={{ opacity: 0.6, fontSize: 12 }}>signed in as</div><div>{user}</div></div>
-            <button style={{ ...btn, background: "#1f2a44" }} onClick={logout}>Sign out</button>
+      {user && phase !== "ready" && (
+        <section className="card">
+          <div className="kicker">02 · creating your dWallet</div>
+          <div style={{ marginTop: 10 }}>
+            {STEPS.map((s, i) => (
+              <div className="step" key={s.key}>
+                <div className={"dot " + (i < stepIdx ? "done" : i === stepIdx ? "live" : "")}>{i < stepIdx ? "✓" : ""}</div>
+                <div><div style={{ fontWeight: 500 }}>{s.label}</div><div style={{ color: "var(--dim)", fontSize: 12, marginTop: 2 }}>{s.detail}</div></div>
+              </div>
+            ))}
           </div>
-        </div>
+          {phase === "idle" && <button className="btn" style={{ marginTop: 14 }} onClick={loadWallet} disabled={busy}>create wallet</button>}
+        </section>
       )}
 
-      {user && w && (
+      {user && phase === "ready" && w && (
         <>
-          <div style={card}>
-            <div style={{ opacity: 0.6, fontSize: 12 }}>Ethereum (Sepolia)</div>
-            <div style={mono}>{w.wallet.ethAddress}</div>
-            <div style={{ marginTop: 6 }}>{w.balances.sepoliaEth} ETH</div>
-            <div style={{ opacity: 0.6, fontSize: 12, marginTop: 14 }}>Bitcoin (testnet, P2WPKH)</div>
-            <div style={mono}>{w.wallet.btcAddress}</div>
-            <div style={{ marginTop: 6 }}>{w.balances.testnetBtc} BTC</div>
-            <div style={{ opacity: 0.6, fontSize: 12, marginTop: 14 }}>dWallet on Sui</div>
-            <div style={mono}>{w.wallet.dwalletId}</div>
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button style={{ ...btn, background: "#1f2a44" }} onClick={() => navigator.clipboard.writeText(w.wallet.ethAddress)}>Copy ETH address</button>
-              <button style={{ ...btn, background: "#1f2a44" }} onClick={() => navigator.clipboard.writeText(w.wallet.btcAddress)}>Copy BTC address</button>
-              <button style={{ ...btn, background: "#1f2a44" }} onClick={loadWallet} disabled={busy}>Refresh</button>
+          <nav className="row" style={{ marginBottom: 12 }}>
+            {(["wallet", "receive", "send", "how"] as const).map((v) => <button key={v} className={"tab " + (view === v ? "on" : "")} onClick={() => setView(v)}>{v === "how" ? "how it works" : v}</button>)}
+            <span style={{ flex: 1 }} />
+            <button className="btn ghost" onClick={loadWallet} disabled={busy}>refresh</button>
+          </nav>
+
+          {view === "wallet" && (
+            <div className="grid">
+              <div className="card">
+                <div className="kicker">ethereum · sepolia</div>
+                <div style={{ fontSize: 26, fontWeight: 600, margin: "10px 0 2px" }}>{Number(w.balances.sepoliaEth).toFixed(5)} <span style={{ fontSize: 13, color: "var(--mute)" }}>ETH</span></div>
+                <div className="addr" style={{ color: "var(--mute)", marginTop: 8 }}>{w.wallet.ethAddress}</div>
+                <div className="row" style={{ marginTop: 14 }}>
+                  <button className="btn ghost" onClick={() => { setChain("eth"); setView("receive"); }}>receive</button>
+                  <button className="btn" onClick={() => { setChain("eth"); setView("send"); }}>send</button>
+                </div>
+              </div>
+              <div className="card">
+                <div className="kicker">bitcoin · testnet</div>
+                <div style={{ fontSize: 26, fontWeight: 600, margin: "10px 0 2px" }}>{w.balances.testnetBtc} <span style={{ fontSize: 13, color: "var(--mute)" }}>BTC</span></div>
+                <div className="addr" style={{ color: "var(--mute)", marginTop: 8 }}>{w.wallet.btcAddress}</div>
+                <div className="row" style={{ marginTop: 14 }}>
+                  <button className="btn ghost" onClick={() => { setChain("btc"); setView("receive"); }}>receive</button>
+                  <button className="btn ghost" disabled title="Bitcoin sends: next class">send</button>
+                </div>
+              </div>
+              <div className="card" style={{ gridColumn: "1 / -1" }}>
+                <div className="kicker">sui · coordination layer</div>
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 6, columnGap: 12, fontSize: 12.5 }}>
+                  <span style={{ color: "var(--dim)" }}>dWallet</span><span className="addr">{w.wallet.dwalletId}</span>
+                  <span style={{ color: "var(--dim)" }}>DWalletCap</span><span className="addr">{w.wallet.dwalletCapId}</span>
+                  <span style={{ color: "var(--dim)" }}>created</span><span>{new Date(w.wallet.createdAt).toLocaleString()}</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div style={card}>
-            <div style={{ fontWeight: 600, marginBottom: 10 }}>Send ETH on Sepolia</div>
-            <input style={input} placeholder="0x recipient" value={to} onChange={(e) => setTo(e.target.value)} />
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <input style={{ ...input, width: 160 }} value={amount} onChange={(e) => setAmount(e.target.value)} />
-              <button style={btn} onClick={send} disabled={busy || !to}>Sign with Ika and send</button>
+          )}
+
+          {view === "receive" && (
+            <div className="card">
+              <div className="row" style={{ marginBottom: 10 }}>
+                <button className={"tab " + (chain === "eth" ? "on" : "")} onClick={() => setChain("eth")}>ethereum</button>
+                <button className={"tab " + (chain === "btc" ? "on" : "")} onClick={() => setChain("btc")}>bitcoin</button>
+              </div>
+              <div className="kicker">{chain === "eth" ? "sepolia address" : "testnet p2wpkh address"}</div>
+              <div className="addr" style={{ fontSize: 15, margin: "10px 0 14px" }}>{addr}</div>
+              <div className="row">
+                <button className="btn" onClick={() => navigator.clipboard.writeText(addr!)}>copy</button>
+                {chain === "eth" && <a className="btn ghost" style={{ textDecoration: "none" }} href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia" target="_blank">sepolia faucet</a>}
+                {chain === "btc" && <a className="btn ghost" style={{ textDecoration: "none" }} href="https://coinfaucet.eu/en/btc-testnet/" target="_blank">testnet faucet</a>}
+              </div>
+              <hr />
+              <p style={{ color: "var(--dim)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>Nothing happens on Sui when you receive. The address is a pure function of the dWallet's public key; funds land on {chain === "eth" ? "Ethereum" : "Bitcoin"} like any other address.</p>
             </div>
-            {txHash && <div style={{ marginTop: 10 }}><a style={{ color: "#60a5fa" }} href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank">view on Etherscan</a></div>}
-            <p style={{ opacity: 0.6, fontSize: 12, marginTop: 10 }}>The transaction is built here, hashed, and the hash is signed by the Ika network on behalf of the dWallet cap held by this server. No private key exists anywhere.</p>
-          </div>
+          )}
+
+          {view === "send" && (
+            <div className="card">
+              <div className="kicker">send · ethereum sepolia</div>
+              <div style={{ marginTop: 12 }}>
+                <input className="input" placeholder="0x recipient" value={to} onChange={(e) => setTo(e.target.value)} />
+                <div className="row" style={{ marginTop: 8 }}>
+                  <input className="input" style={{ width: 180 }} value={amount} onChange={(e) => setAmount(e.target.value)} />
+                  <span style={{ color: "var(--mute)", fontSize: 12 }}>ETH · balance {Number(w.balances.sepoliaEth).toFixed(5)}</span>
+                  <span style={{ flex: 1 }} />
+                  <button className="btn" onClick={send} disabled={busy || !to}>{busy ? "signing with ika…" : "sign with ika and send"}</button>
+                </div>
+              </div>
+              {txHash && <div style={{ marginTop: 12 }}><a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank">view on etherscan →</a></div>}
+              <hr />
+              <p style={{ color: "var(--dim)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>The transaction is built here and hashed. The Ika network and the operator produce the ECDSA signature together; the recovery bit is found by matching your address; then it is broadcast. At no point does a private key exist.</p>
+            </div>
+          )}
+
+          {view === "how" && (
+            <div className="card">
+              <div className="kicker">how it works</div>
+              <div style={{ marginTop: 10 }}>
+                {[
+                  ["login", "Google or an email identifies you. The server maps that id to one dWallet."],
+                  ["operator", "One Sui key on the server holds IKA, SUI and every DWalletCap. It pays for DKG, presigns and signatures."],
+                  ["dkg", "requestDWalletDKGWithPublicUserShare. The key is generated as shares between the operator and the Ika network."],
+                  ["addresses", "publicKeyFromDWalletOutput, then keccak256 for Ethereum and hash160 + bech32 for Bitcoin."],
+                  ["presign", "requestGlobalPresign runs the slow half of ECDSA before there is anything to sign."],
+                  ["sign", "approveMessage + requestSign. Whoever can borrow the DWalletCap decides. A Move module could be that holder, with any rule you write."],
+                ].map(([k, v]) => <div className="step" key={k}><div className="dot" /><div><div style={{ fontWeight: 500 }}>{k}</div><div style={{ color: "var(--dim)", fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>{v}</div></div></div>)}
+              </div>
+            </div>
+          )}
         </>
       )}
 
-      {log.length > 0 && <div style={card}><div style={{ opacity: 0.6, fontSize: 12, marginBottom: 6 }}>log</div>{log.map((l, i) => <div key={i} style={{ ...mono, opacity: 0.85 }}>{l}</div>)}</div>}
+      {log.length > 0 && (
+        <section className="card" style={{ marginTop: 12 }}>
+          <div className="kicker">activity</div>
+          <div className="log" ref={logRef} style={{ marginTop: 8 }}>{log.map((l, i) => <div key={i}>{l}</div>)}</div>
+        </section>
+      )}
     </main>
   );
 }
