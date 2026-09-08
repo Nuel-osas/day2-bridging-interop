@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react";
 type ChainInfo = { label: string; symbol: string; faucet: string };
 type WalletResp = { user: string; wallet: { dwalletId: string; dwalletCapId: string; ethAddress: string; btcAddress: string; createdAt: string }; balances: { evm: Record<string, string>; testnetBtc: string }; chains: Record<string, ChainInfo>; steps: string[] };
 type Step = { key: string; label: string; detail: string };
+async function readStream(res: Response, onLine: (o: any) => void) {
+  const reader = res.body!.getReader(); const dec = new TextDecoder(); let buf = "";
+  for (;;) { const { value, done } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); let i; while ((i = buf.indexOf("\n")) >= 0) { const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (line) onLine(JSON.parse(line)); } }
+  if (buf.trim()) onLine(JSON.parse(buf.trim()));
+}
 const STEPS: Step[] = [
   { key: "signin", label: "Sign in", detail: "Your login is the account id. No wallet, no seed phrase." },
   { key: "dkg", label: "Generate the key on Ika", detail: "Distributed key generation between the operator and the Ika network. No party ever holds the whole key." },
@@ -25,6 +30,8 @@ export default function Page() {
   const [txExplorer, setTxExplorer] = useState<string | null>(null);
   const [to, setTo] = useState(""); const [amount, setAmount] = useState("0.0001");
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string; href?: string } | null>(null);
+  const say = (kind: "ok" | "err", text: string, href?: string) => { setToast({ kind, text, href }); setTimeout(() => setToast(null), 9000); };
   const logRef = useRef<HTMLDivElement>(null);
   const push = (s: string) => setLog((l) => [...l, `${new Date().toLocaleTimeString([], { hour12: false })}  ${s}`]);
   useEffect(() => { logRef.current?.scrollTo({ top: 1e9 }); }, [log]);
@@ -39,17 +46,26 @@ export default function Page() {
 
   async function demoLogin() { const r = await fetch("/api/auth/demo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) }); const j = await r.json(); if (j.user) { setUser(j.user); setStepIdx(1); } else push(j.error); }
   async function loadWallet() {
-    setBusy(true); setPhase("creating"); setStepIdx(1); push("checking Ika for a dWallet bound to this login");
-    const t = setInterval(() => setStepIdx((i) => (i < 2 ? i + 0 : i)), 1000);
-    const r = await fetch("/api/wallet"); const j = await r.json(); clearInterval(t);
-    (j.steps ?? []).forEach((s: string) => { push(s); if (/finish DKG/i.test(s)) setStepIdx(2); if (/active/i.test(s)) setStepIdx(3); });
-    if (j.wallet) { setW(j); setStepIdx(4); setPhase("ready"); push("ready"); } else { push("error: " + j.error); setPhase("idle"); }
+    setBusy(true); setPhase((p) => (p === "ready" ? "ready" : "creating")); if (!w) setStepIdx(1); push("checking Ika for a dWallet bound to this login");
+    const r = await fetch("/api/wallet");
+    if (!r.ok || !r.body) { push("error: " + (await r.text())); setBusy(false); return; }
+    let final: any = null;
+    await readStream(r, (o) => {
+      if (o.step) { push(`+${(o.t / 1000).toFixed(1)}s  ${o.step}`); if (/finish DKG/i.test(o.step)) setStepIdx(2); if (/active/i.test(o.step)) setStepIdx(3); }
+      if (o.done) final = o;
+    });
+    if (final?.wallet) { setW(final); setStepIdx(4); setPhase("ready"); push("ready"); }
+    else { push("error: " + (final?.error ?? "unknown")); say("err", final?.error ?? "wallet error"); setPhase("idle"); }
     setBusy(false);
   }
   async function send() {
-    setBusy(true); setTxHash(null); push(`send ${amount} ETH to ${to}`);
-    const r = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to, amount, chain }) }); const j = await r.json(); (j.steps ?? []).forEach(push);
-    if (j.hash) { setTxHash(j.hash); setTxExplorer(j.explorer); push("broadcast " + j.hash); loadWallet(); } else push("error: " + j.error);
+    setBusy(true); setTxHash(null); push(`send ${amount} to ${to} on ${w?.chains[chain]?.label}`);
+    const r = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to, amount, chain }) });
+    if (!r.ok || !r.body) { const e = await r.text(); push("error: " + e); say("err", e); setBusy(false); return; }
+    let final: any = null;
+    await readStream(r, (o) => { if (o.step) push(`+${(o.t / 1000).toFixed(1)}s  ${o.step}`); if (o.done) final = o; });
+    if (final?.hash) { setTxHash(final.hash); setTxExplorer(final.explorer); push(`broadcast ${final.hash} (${(final.t / 1000).toFixed(1)}s)`); say("ok", `sent ${amount} ${w?.chains[chain]?.symbol} on ${w?.chains[chain]?.label} in ${(final.t / 1000).toFixed(0)}s`, final.explorer); loadWallet(); }
+    else { push("error: " + (final?.error ?? "unknown")); say("err", final?.error ?? "send failed"); }
     setBusy(false);
   }
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); setUser(null); setW(null); setLog([]); setPhase("idle"); setStepIdx(0); setView("wallet"); }
@@ -61,6 +77,13 @@ export default function Page() {
 
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: "40px 20px 80px" }}>
+      {toast && (
+        <div style={{ position: "fixed", right: 20, bottom: 20, zIndex: 50, maxWidth: 420, background: toast.kind === "ok" ? "#f4f4f5" : "#18181b", color: toast.kind === "ok" ? "#000" : "#f4f4f5", border: "1px solid " + (toast.kind === "ok" ? "#f4f4f5" : "#3f3f46"), borderRadius: 12, padding: "12px 14px", fontSize: 13, boxShadow: "0 10px 30px rgba(0,0,0,.6)" }}>
+          <div style={{ fontWeight: 600, marginBottom: toast.href ? 6 : 0 }}>{toast.kind === "ok" ? "signed by ika" : "failed"}</div>
+          <div style={{ wordBreak: "break-word" }}>{toast.text}</div>
+          {toast.href && <a href={toast.href} target="_blank" style={{ color: "inherit", display: "inline-block", marginTop: 6 }}>view on explorer →</a>}
+        </div>
+      )}
       <header className="row" style={{ justifyContent: "space-between", marginBottom: 28 }}>
         <div>
           <div className="kicker">ika wallet · sui testnet</div>
