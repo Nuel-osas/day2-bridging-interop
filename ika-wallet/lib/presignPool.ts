@@ -22,7 +22,6 @@ type Deps = { ika: any; ikaCoin: () => string; exec: (tx: Transaction) => Promis
 
 /** Take a Completed presign out of the pool, or null. Never waits. */
 export async function takeReady(d: Deps): Promise<{ presignId: string; presign: any } | null> {
-  await adoptOrphans(d);
   const pool = load();
   while (pool.length) {
     const e = pool.shift()!; save(pool);
@@ -59,7 +58,7 @@ async function requestOne(d: Deps): Promise<string> {
 }
 
 /** Presign caps the operator already owns but never consumed: paid for, so use them first. */
-async function adoptOrphans(d: Deps) {
+export async function adoptOrphans(d: Deps) {
   if (adoptedOnce) return; adoptedOnce = true;
   try {
     const cfg = getNetworkConfig("testnet"); const me = operator().toSuiAddress();
