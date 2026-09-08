@@ -44,6 +44,7 @@ async function protocolParams(c: IkaClient, dw: any) { if (!GI.pp) GI.pp = await
 export async function warmPool(log?: (s: string) => void, wallet?: Wallet) {
   const c = await ika(); const d = deps(log);
   void (async () => {
+    try { await keys(); } catch {}
     try { await warmPresignObjects(d); } catch {}
     try { if (wallet?.dwalletId) { const dw = await c.getDWalletInParticularState(wallet.dwalletId, "Active"); dwCache.set(wallet.dwalletId, dw); await protocolParams(c, dw); } } catch {}
     void refill(d);

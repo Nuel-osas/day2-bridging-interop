@@ -26,7 +26,7 @@ export async function takeReady(d: Deps): Promise<{ presignId: string; presign: 
   const pool = load();
   while (pool.length) {
     const e = pool.shift()!; save(pool);
-    const cached = presignObjects.get(e.presignId); if (cached) { presignObjects.delete(e.presignId); return { presignId: e.presignId, presign: cached }; }
+    const cached = presignObjects.get(e.presignId); d.log?.(`presign object cache ${cached ? "hit" : "miss"} (${presignObjects.size} cached)`); if (cached) { presignObjects.delete(e.presignId); return { presignId: e.presignId, presign: cached }; }
     try { const p: any = await d.ika.getPresign(e.presignId); if (p?.state?.Completed) return { presignId: e.presignId, presign: p }; } catch {}
   }
   return null;
