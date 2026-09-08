@@ -21,6 +21,7 @@ designs for builders.
 | `scripts/04-ika-dwallet.mjs` | Ika read-only view: coordinator, epoch, encryption key, the write path as a list. |
 | `scripts/09-ika-eth-wallet.mjs` | Ika end to end on testnet: shared dWallet, Ethereum address, presign, sign, address recovery. Verified. |
 | `docs/ika-on-testnet.md` | How to get IKA (the faucet is an on-chain exchange), fees observed, and the gotchas. |
+| `ika-wallet/` | The Ika dApp: sign in (Google, or an email box for demos), get an Ethereum and a Bitcoin address from one Ika dWallet controlled from Sui, receive on either, send ETH on Sepolia signed by the Ika network. Next.js. |
 | `connect-app/` | Wormhole Connect widget, Sepolia to Sui testnet, embedded in a page. |
 | `docs/how-intent-bridging-works.md` | The mechanism: intent, auction, fill, proof, settlement, and who holds the risk. |
 | `docs/research/` | The five sourced reports behind the class: Sui Bridge internals, CCTP on Sui, builder interop (Ika, Hashi, messaging), bridge security, intent bridging. Every claim dated and linked. |

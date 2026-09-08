@@ -100,7 +100,31 @@ Slides 20 to 22. Lead with Kelp DAO rsETH, April 2026: 292M USD, zero contract b
 verifier. Then Ronin, Nomad, Wormhole, Multichain. Then the two lists: questions before
 integrating, rules for your app. Full material in production-week/research/05-bridge-security.md.
 
-## Part 6: contracts that act on other chains (30 min)
+## Part 6: build with Ika: the Gmail multi-chain wallet (45 min)
+
+The dApp in `ika-wallet/`. One operator Sui key holds IKA, SUI and every DWalletCap; each
+signed-in user gets a shared dWallet; addresses are derived from its public key.
+
+```bash
+cd ika-wallet && pnpm install && pnpm dev          # http://localhost:3005
+# .env: SUI_OPERATOR_ADDRESS (or SUI_OPERATOR_PRIVATE_KEY), IKA_COIN_ID, IKA_ROOT_SEED, SESSION_SECRET, GOOGLE_CLIENT_ID (optional)
+```
+
+Live, in this order:
+1. Sign in with Gmail (or type any email if Google is not configured).
+2. Watch the log: distributed key generation on Ika, then "dWallet active". About 40 s. The page shows
+   an Ethereum address and a Bitcoin address, both derived from the same secp256k1 key.
+3. Receive: paste the Ethereum address into a Sepolia faucet, or send a little Sepolia ETH from any wallet.
+4. Send: enter a recipient and amount, click "Sign with Ika and send". The log shows the presign, the
+   network's half of the signature, and the broadcast. Open the Etherscan link.
+5. Open `lib/ika.ts` on the projector: registerEncryptionKey, requestDWalletDKGWithPublicUserShare,
+   requestGlobalPresign, approveMessage + requestSign. Then `lib/eth.ts`: the unsigned EIP-1559 tx is
+   what gets hashed and signed; yParity is recovered by matching the address.
+
+Costs: about 4 IKA per DKG, about 17 IKA per presign plus sign. Buy IKA from the exchange (docs/ika-on-testnet.md)
+before class: 10 SUI buys 100 IKA. Keep the operator wallet above 10 SUI.
+
+### Contracts that act on other chains (talk, 10 min)
 
 ```bash
 pnpm ika                       # read-only: coordinator, epoch, encryption key, the write path as a list
