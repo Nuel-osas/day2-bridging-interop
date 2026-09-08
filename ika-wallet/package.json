@@ -1,11 +1,17 @@
 {
   "name": "ika-wallet",
   "private": true,
-  "scripts": { "dev": "next dev -p 3005", "build": "next build", "start": "next start -p 3005" },
+  "scripts": {
+    "dev": "next dev -p 3005",
+    "build": "next build",
+    "start": "next start -p 3005"
+  },
   "dependencies": {
     "@ika.xyz/sdk": "0.5.0",
     "@mysten/sui": "^2.29.0",
+    "@solana/web3.js": "1",
     "bitcoinjs-lib": "^6.1.7",
+    "bs58": "^6.0.0",
     "ethers": "^6.16.0",
     "google-auth-library": "^9.15.0",
     "next": "^15.5.0",
@@ -13,5 +19,10 @@
     "react-dom": "^19.0.0",
     "viem": "^2.30.0"
   },
-  "devDependencies": { "typescript": "^5.7.0", "@types/node": "^22", "@types/react": "^19", "@types/react-dom": "^19" }
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5.7.0"
+  }
 }

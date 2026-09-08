@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 
 type ChainInfo = { label: string; symbol: string; faucet: string };
-type WalletResp = { user: string; wallet: { dwalletId: string; dwalletCapId: string; ethAddress: string; btcAddress: string; createdAt: string }; balances: { evm: Record<string, string>; testnetBtc: string }; chains: Record<string, ChainInfo>; steps: string[] };
+type WalletResp = { user: string; wallet: { dwalletId: string; dwalletCapId: string; ethAddress: string; btcAddress: string; solAddress: string | null; createdAt: string }; balances: { evm: Record<string, string>; testnetBtc: string; devnetSol: string | null }; chains: Record<string, ChainInfo>; steps: string[] };
 type Step = { key: string; label: string; detail: string };
 async function readStream(res: Response, onLine: (o: any) => void) {
   const reader = res.body!.getReader(); const dec = new TextDecoder(); let buf = "";
@@ -59,19 +59,38 @@ export default function Page() {
     setBusy(false);
   }
   async function send() {
-    setBusy(true); setTxHash(null); push(`send ${amount} to ${to} on ${w?.chains[chain]?.label}`);
+    setBusy(true); setTxHash(null); push(`send ${amount} to ${to} on ${chainLabel}`);
     const r = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to, amount, chain }) });
     if (!r.ok || !r.body) { const e = await r.text(); push("error: " + e); say("err", e); setBusy(false); return; }
     let final: any = null;
     await readStream(r, (o) => { if (o.step) push(`+${(o.t / 1000).toFixed(1)}s  ${o.step}`); if (o.done) final = o; });
-    if (final?.hash) { setTxHash(final.hash); setTxExplorer(final.explorer); push(`broadcast ${final.hash} (${(final.t / 1000).toFixed(1)}s)`); say("ok", `sent ${amount} ${w?.chains[chain]?.symbol} on ${w?.chains[chain]?.label} in ${(final.t / 1000).toFixed(0)}s`, final.explorer); loadWallet(); }
+    if (final?.hash) { setTxHash(final.hash); setTxExplorer(final.explorer); push(`broadcast ${final.hash} (${(final.t / 1000).toFixed(1)}s)`); say("ok", `sent ${amount} ${chainSymbol} on ${chainLabel} in ${(final.t / 1000).toFixed(0)}s`, final.explorer); loadWallet(); }
     else { push("error: " + (final?.error ?? "unknown")); say("err", final?.error ?? "send failed"); }
     setBusy(false);
   }
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); setUser(null); setW(null); setLog([]); setPhase("idle"); setStepIdx(0); setView("wallet"); }
   useEffect(() => { if (user && !w && phase === "idle") loadWallet(); }, [user]);
 
-  const addr = chain === "btc" ? w?.wallet.btcAddress : w?.wallet.ethAddress;
+  const addr = chain === "btc" ? w?.wallet.btcAddress : chain === "solana" ? w?.wallet.solAddress : w?.wallet.ethAddress;
+  const chainLabel = chain === "solana" ? "solana · devnet" : chain === "btc" ? "bitcoin · testnet" : w?.chains[chain]?.label;
+  const chainSymbol = chain === "solana" ? "SOL" : chain === "btc" ? "BTC" : w?.chains[chain]?.symbol;
+  const chainBalance = chain === "solana" ? (w?.balances.devnetSol ?? "0") : (w?.balances.evm[chain] ?? "0");
+  async function enableSolana() {
+    setBusy(true); push("enable solana: second dWallet on ed25519");
+    const r = await fetch("/api/solana/enable", { method: "POST" });
+    if (!r.ok || !r.body) { const e = await r.text(); push("error: " + e); say("err", e); setBusy(false); return; }
+    let final: any = null;
+    await readStream(r, (o) => { if (o.step) push(`+${(o.t / 1000).toFixed(1)}s  ${o.step}`); if (o.done) final = o; });
+    if (final?.sol) { push(`solana ready ${final.sol.address} (${(final.t / 1000).toFixed(1)}s)`); say("ok", `solana wallet ready in ${(final.t / 1000).toFixed(0)}s`); await loadWallet(); }
+    else { push("error: " + (final?.error ?? "unknown")); say("err", final?.error ?? "enable failed"); }
+    setBusy(false);
+  }
+  async function airdrop() {
+    setBusy(true); push("requesting 1 SOL from the devnet faucet");
+    const r = await fetch("/api/solana/airdrop", { method: "POST" }); const j = await r.json();
+    if (j.sig) { push(`airdrop ${j.sig}`); say("ok", "1 SOL airdropped", j.explorer); await loadWallet(); } else { push("error: " + j.error); say("err", j.error ?? "airdrop failed (devnet faucet is rate limited; try faucet.solana.com)"); }
+    setBusy(false);
+  }
   const evmKeys = w ? Object.keys(w.chains) : [];
   const fmt = (v: string) => (v === "n/a" ? "n/a" : Number(v).toFixed(5));
 
@@ -147,9 +166,24 @@ export default function Page() {
                     <button className="btn ghost" disabled title="Bitcoin sends: Day 3">send</button>
                   </div>
                 </div>
+                <div className="card" style={{ opacity: w.wallet.solAddress ? 1 : 0.85 }}>
+                  <div className="kicker">solana · devnet</div>
+                  {w.wallet.solAddress ? (<>
+                    <div style={{ fontSize: 24, fontWeight: 600, margin: "10px 0 2px" }}>{w.balances.devnetSol} <span style={{ fontSize: 12, color: "var(--mute)" }}>SOL</span></div>
+                    <div className="addr" style={{ color: "var(--mute)", marginTop: 6, fontSize: 11.5 }}>{w.wallet.solAddress}</div>
+                    <div className="row" style={{ marginTop: 12 }}>
+                      <button className="btn ghost" onClick={() => { setChain("solana"); setView("receive"); }}>receive</button>
+                      <button className="btn ghost" onClick={airdrop} disabled={busy}>airdrop 1 SOL</button>
+                      <button className="btn" onClick={() => { setChain("solana"); setView("send"); }}>send</button>
+                    </div>
+                  </>) : (<>
+                    <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--mute)", lineHeight: 1.6 }}>Solana signs with ed25519, not secp256k1. That means a second dWallet: one more DKG on Curve.ED25519, then EdDSA signing. Same operator, same code path, one more curve.</div>
+                    <div className="row" style={{ marginTop: 12 }}><button className="btn" onClick={enableSolana} disabled={busy}>{busy ? "working…" : "enable solana (second dkg)"}</button></div>
+                  </>)}
+                </div>
                 <div className="card" style={{ opacity: 0.6 }}>
-                  <div className="kicker">solana · near · cardano</div>
-                  <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--mute)", lineHeight: 1.6 }}>Need an ed25519 dWallet: a second DKG on Curve.ED25519 and EdDSA signing. Same operator, same code path, one more curve. Not wired today.</div>
+                  <div className="kicker">near · cardano · sui</div>
+                  <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--mute)", lineHeight: 1.6 }}>Also ed25519. Once the Solana dWallet exists, its public key already is a NEAR implicit account and a Sui ed25519 address. Only the transaction builders differ.</div>
                 </div>
                 <div className="card" style={{ gridColumn: "1 / -1" }}>
                   <div className="kicker">sui · coordination layer</div>
@@ -169,12 +203,13 @@ export default function Page() {
               <div className="row" style={{ marginBottom: 10, flexWrap: "wrap" }}>
                 {evmKeys.map((k) => <button key={k} className={"tab " + (chain === k ? "on" : "")} onClick={() => setChain(k)}>{w.chains[k].label.split(" · ")[0]}</button>)}
                 <button className={"tab " + (chain === "btc" ? "on" : "")} onClick={() => setChain("btc")}>bitcoin</button>
+                {w.wallet.solAddress && <button className={"tab " + (chain === "solana" ? "on" : "")} onClick={() => setChain("solana")}>solana</button>}
               </div>
-              <div className="kicker">{chain === "btc" ? "testnet p2wpkh address" : `${w.chains[chain]?.label} address (same on every evm chain)`}</div>
+              <div className="kicker">{chain === "btc" ? "testnet p2wpkh address" : chain === "solana" ? "devnet address (base58 of the ed25519 public key)" : `${w.chains[chain]?.label} address (same on every evm chain)`}</div>
               <div className="addr" style={{ fontSize: 15, margin: "10px 0 14px" }}>{addr}</div>
               <div className="row">
                 <button className="btn" onClick={() => navigator.clipboard.writeText(addr!)}>copy</button>
-                <a className="btn ghost" style={{ textDecoration: "none" }} href={chain === "btc" ? "https://coinfaucet.eu/en/btc-testnet/" : w.chains[chain]?.faucet} target="_blank">faucet</a>
+                <a className="btn ghost" style={{ textDecoration: "none" }} href={chain === "btc" ? "https://coinfaucet.eu/en/btc-testnet/" : chain === "solana" ? "https://faucet.solana.com/" : w.chains[chain]?.faucet} target="_blank">faucet</a>
               </div>
               <hr />
               <p style={{ color: "var(--dim)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>Nothing happens on Sui when you receive. The address is a pure function of the dWallet's public key.</p>
@@ -183,20 +218,21 @@ export default function Page() {
 
           {view === "send" && (
             <div className="card">
-              <div className="row" style={{ marginBottom: 10, flexWrap: "wrap" }}>{evmKeys.map((k) => <button key={k} className={"tab " + (chain === k ? "on" : "")} onClick={() => setChain(k)}>{w.chains[k].label.split(" · ")[0]}</button>)}</div>
-              <div className="kicker">send · {w.chains[chain]?.label ?? "ethereum · sepolia"}</div>
+              <div className="row" style={{ marginBottom: 10, flexWrap: "wrap" }}>{evmKeys.map((k) => <button key={k} className={"tab " + (chain === k ? "on" : "")} onClick={() => setChain(k)}>{w.chains[k].label.split(" · ")[0]}</button>)}
+                {w.wallet.solAddress && <button className={"tab " + (chain === "solana" ? "on" : "")} onClick={() => setChain("solana")}>solana</button>}</div>
+              <div className="kicker">send · {chainLabel ?? "ethereum · sepolia"}</div>
               <div style={{ marginTop: 12 }}>
-                <input className="input" placeholder="0x recipient" value={to} onChange={(e) => setTo(e.target.value)} />
+                <input className="input" placeholder={chain === "solana" ? "base58 recipient" : "0x recipient"} value={to} onChange={(e) => setTo(e.target.value)} />
                 <div className="row" style={{ marginTop: 8 }}>
                   <input className="input" style={{ width: 180 }} value={amount} onChange={(e) => setAmount(e.target.value)} />
-                  <span style={{ color: "var(--mute)", fontSize: 12 }}>{w.chains[chain]?.symbol} · balance {fmt(w.balances.evm[chain] ?? "0")}</span>
+                  <span style={{ color: "var(--mute)", fontSize: 12 }}>{chainSymbol} · balance {fmt(chainBalance)}</span>
                   <span style={{ flex: 1 }} />
                   <button className="btn" onClick={send} disabled={busy || !to}>{busy ? "signing with ika…" : "sign with ika and send"}</button>
                 </div>
               </div>
               {txHash && <div style={{ marginTop: 12 }}><a href={txExplorer ?? "#"} target="_blank">view on explorer →</a></div>}
               <hr />
-              <p style={{ color: "var(--dim)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>The transaction is built here and hashed. The Ika network and the operator produce the ECDSA signature together; the recovery bit is found by matching your address; then it is broadcast. At no point does a private key exist.</p>
+              <p style={{ color: "var(--dim)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>{chain === "solana" ? "The transfer is built here with the Solana SDK. The Ika network and the operator produce the 64-byte EdDSA signature together over the message bytes; it is attached to the transaction and broadcast to devnet. At no point does a private key exist." : "The transaction is built here and hashed. The Ika network and the operator produce the ECDSA signature together; the recovery bit is found by matching your address; then it is broadcast. At no point does a private key exist."}</p>
             </div>
           )}
 
