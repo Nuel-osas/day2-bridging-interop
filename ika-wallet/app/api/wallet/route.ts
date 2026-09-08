@@ -1,6 +1,6 @@
 import { getUser } from "@/lib/session";
 import { getOrCreateWallet, warmPool } from "@/lib/ika";
-import { ethBalance } from "@/lib/eth";
+import { evmBalances, EVM } from "@/lib/eth";
 import { btcBalance } from "@/lib/btc";
 export const maxDuration = 300;
 export async function GET() {
@@ -9,7 +9,7 @@ export async function GET() {
   try {
     const w = await getOrCreateWallet(user, stamp);
     void warmPool(undefined, w);
-    const [ethBal, btcBal] = await Promise.all([ethBalance(w.ethAddress), btcBalance(w.btcAddress)]);
-    return Response.json({ user, wallet: { dwalletId: w.dwalletId, dwalletCapId: w.dwalletCapId, ethAddress: w.ethAddress, btcAddress: w.btcAddress, createdAt: w.createdAt }, balances: { sepoliaEth: ethBal, testnetBtc: btcBal }, steps });
+    const [evmBal, btcBal] = await Promise.all([evmBalances(w.ethAddress), btcBalance(w.btcAddress)]);
+    return Response.json({ user, wallet: { dwalletId: w.dwalletId, dwalletCapId: w.dwalletCapId, ethAddress: w.ethAddress, btcAddress: w.btcAddress, createdAt: w.createdAt }, balances: { evm: evmBal, testnetBtc: btcBal }, chains: Object.fromEntries(Object.entries(EVM).map(([k, v]) => [k, { label: v.label, symbol: v.symbol, faucet: v.faucet }])), steps });
   } catch (e: any) { return Response.json({ error: String(e.message ?? e), steps }, { status: 500 }); }
 }

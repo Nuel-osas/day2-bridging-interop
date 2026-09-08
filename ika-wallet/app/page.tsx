@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-type WalletResp = { user: string; wallet: { dwalletId: string; dwalletCapId: string; ethAddress: string; btcAddress: string; createdAt: string }; balances: { sepoliaEth: string; testnetBtc: string }; steps: string[] };
+type ChainInfo = { label: string; symbol: string; faucet: string };
+type WalletResp = { user: string; wallet: { dwalletId: string; dwalletCapId: string; ethAddress: string; btcAddress: string; createdAt: string }; balances: { evm: Record<string, string>; testnetBtc: string }; chains: Record<string, ChainInfo>; steps: string[] };
 type Step = { key: string; label: string; detail: string };
 const STEPS: Step[] = [
   { key: "signin", label: "Sign in", detail: "Your login is the account id. No wallet, no seed phrase." },
@@ -20,7 +21,8 @@ export default function Page() {
   const [log, setLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"wallet" | "receive" | "send" | "how">("wallet");
-  const [chain, setChain] = useState<"eth" | "btc">("eth");
+  const [chain, setChain] = useState<string>("sepolia");   // an EVM key, or "btc"
+  const [txExplorer, setTxExplorer] = useState<string | null>(null);
   const [to, setTo] = useState(""); const [amount, setAmount] = useState("0.0001");
   const [txHash, setTxHash] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -46,14 +48,16 @@ export default function Page() {
   }
   async function send() {
     setBusy(true); setTxHash(null); push(`send ${amount} ETH to ${to}`);
-    const r = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to, amount }) }); const j = await r.json(); (j.steps ?? []).forEach(push);
-    if (j.hash) { setTxHash(j.hash); push("broadcast " + j.hash); setView("wallet"); loadWallet(); } else push("error: " + j.error);
+    const r = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to, amount, chain }) }); const j = await r.json(); (j.steps ?? []).forEach(push);
+    if (j.hash) { setTxHash(j.hash); setTxExplorer(j.explorer); push("broadcast " + j.hash); loadWallet(); } else push("error: " + j.error);
     setBusy(false);
   }
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); setUser(null); setW(null); setLog([]); setPhase("idle"); setStepIdx(0); setView("wallet"); }
   useEffect(() => { if (user && !w && phase === "idle") loadWallet(); }, [user]);
 
-  const addr = chain === "eth" ? w?.wallet.ethAddress : w?.wallet.btcAddress;
+  const addr = chain === "btc" ? w?.wallet.btcAddress : w?.wallet.ethAddress;
+  const evmKeys = w ? Object.keys(w.chains) : [];
+  const fmt = (v: string) => (v === "n/a" ? "n/a" : Number(v).toFixed(5));
 
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: "40px 20px 80px" }}>
@@ -98,67 +102,76 @@ export default function Page() {
           </nav>
 
           {view === "wallet" && (
-            <div className="grid">
-              <div className="card">
-                <div className="kicker">ethereum · sepolia</div>
-                <div style={{ fontSize: 26, fontWeight: 600, margin: "10px 0 2px" }}>{Number(w.balances.sepoliaEth).toFixed(5)} <span style={{ fontSize: 13, color: "var(--mute)" }}>ETH</span></div>
-                <div className="addr" style={{ color: "var(--mute)", marginTop: 8 }}>{w.wallet.ethAddress}</div>
-                <div className="row" style={{ marginTop: 14 }}>
-                  <button className="btn ghost" onClick={() => { setChain("eth"); setView("receive"); }}>receive</button>
-                  <button className="btn" onClick={() => { setChain("eth"); setView("send"); }}>send</button>
+            <>
+              <div className="kicker" style={{ margin: "4px 0 10px" }}>one secp256k1 key · {evmKeys.length} evm networks share the address {w.wallet.ethAddress.slice(0, 10)}…</div>
+              <div className="grid">
+                {evmKeys.map((k) => (
+                  <div className="card" key={k}>
+                    <div className="kicker">{w.chains[k].label}</div>
+                    <div style={{ fontSize: 24, fontWeight: 600, margin: "10px 0 2px" }}>{fmt(w.balances.evm[k])} <span style={{ fontSize: 12, color: "var(--mute)" }}>{w.chains[k].symbol}</span></div>
+                    <div className="row" style={{ marginTop: 12 }}>
+                      <button className="btn ghost" onClick={() => { setChain(k); setView("receive"); }}>receive</button>
+                      <button className="btn" onClick={() => { setChain(k); setView("send"); }}>send</button>
+                    </div>
+                  </div>
+                ))}
+                <div className="card">
+                  <div className="kicker">bitcoin · testnet</div>
+                  <div style={{ fontSize: 24, fontWeight: 600, margin: "10px 0 2px" }}>{w.balances.testnetBtc} <span style={{ fontSize: 12, color: "var(--mute)" }}>BTC</span></div>
+                  <div className="addr" style={{ color: "var(--mute)", marginTop: 6, fontSize: 11.5 }}>{w.wallet.btcAddress}</div>
+                  <div className="row" style={{ marginTop: 12 }}>
+                    <button className="btn ghost" onClick={() => { setChain("btc"); setView("receive"); }}>receive</button>
+                    <button className="btn ghost" disabled title="Bitcoin sends: Day 3">send</button>
+                  </div>
+                </div>
+                <div className="card" style={{ opacity: 0.6 }}>
+                  <div className="kicker">solana · near · cardano</div>
+                  <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--mute)", lineHeight: 1.6 }}>Need an ed25519 dWallet: a second DKG on Curve.ED25519 and EdDSA signing. Same operator, same code path, one more curve. Not wired today.</div>
+                </div>
+                <div className="card" style={{ gridColumn: "1 / -1" }}>
+                  <div className="kicker">sui · coordination layer</div>
+                  <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 6, columnGap: 12, fontSize: 12.5 }}>
+                    <span style={{ color: "var(--dim)" }}>dWallet</span><span className="addr">{w.wallet.dwalletId}</span>
+                    <span style={{ color: "var(--dim)" }}>DWalletCap</span><span className="addr">{w.wallet.dwalletCapId}</span>
+                    <span style={{ color: "var(--dim)" }}>evm address</span><span className="addr">{w.wallet.ethAddress}</span>
+                    <span style={{ color: "var(--dim)" }}>created</span><span>{new Date(w.wallet.createdAt).toLocaleString()}</span>
+                  </div>
                 </div>
               </div>
-              <div className="card">
-                <div className="kicker">bitcoin · testnet</div>
-                <div style={{ fontSize: 26, fontWeight: 600, margin: "10px 0 2px" }}>{w.balances.testnetBtc} <span style={{ fontSize: 13, color: "var(--mute)" }}>BTC</span></div>
-                <div className="addr" style={{ color: "var(--mute)", marginTop: 8 }}>{w.wallet.btcAddress}</div>
-                <div className="row" style={{ marginTop: 14 }}>
-                  <button className="btn ghost" onClick={() => { setChain("btc"); setView("receive"); }}>receive</button>
-                  <button className="btn ghost" disabled title="Bitcoin sends: next class">send</button>
-                </div>
-              </div>
-              <div className="card" style={{ gridColumn: "1 / -1" }}>
-                <div className="kicker">sui · coordination layer</div>
-                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 6, columnGap: 12, fontSize: 12.5 }}>
-                  <span style={{ color: "var(--dim)" }}>dWallet</span><span className="addr">{w.wallet.dwalletId}</span>
-                  <span style={{ color: "var(--dim)" }}>DWalletCap</span><span className="addr">{w.wallet.dwalletCapId}</span>
-                  <span style={{ color: "var(--dim)" }}>created</span><span>{new Date(w.wallet.createdAt).toLocaleString()}</span>
-                </div>
-              </div>
-            </div>
+            </>
           )}
 
           {view === "receive" && (
             <div className="card">
-              <div className="row" style={{ marginBottom: 10 }}>
-                <button className={"tab " + (chain === "eth" ? "on" : "")} onClick={() => setChain("eth")}>ethereum</button>
+              <div className="row" style={{ marginBottom: 10, flexWrap: "wrap" }}>
+                {evmKeys.map((k) => <button key={k} className={"tab " + (chain === k ? "on" : "")} onClick={() => setChain(k)}>{w.chains[k].label.split(" · ")[0]}</button>)}
                 <button className={"tab " + (chain === "btc" ? "on" : "")} onClick={() => setChain("btc")}>bitcoin</button>
               </div>
-              <div className="kicker">{chain === "eth" ? "sepolia address" : "testnet p2wpkh address"}</div>
+              <div className="kicker">{chain === "btc" ? "testnet p2wpkh address" : `${w.chains[chain]?.label} address (same on every evm chain)`}</div>
               <div className="addr" style={{ fontSize: 15, margin: "10px 0 14px" }}>{addr}</div>
               <div className="row">
                 <button className="btn" onClick={() => navigator.clipboard.writeText(addr!)}>copy</button>
-                {chain === "eth" && <a className="btn ghost" style={{ textDecoration: "none" }} href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia" target="_blank">sepolia faucet</a>}
-                {chain === "btc" && <a className="btn ghost" style={{ textDecoration: "none" }} href="https://coinfaucet.eu/en/btc-testnet/" target="_blank">testnet faucet</a>}
+                <a className="btn ghost" style={{ textDecoration: "none" }} href={chain === "btc" ? "https://coinfaucet.eu/en/btc-testnet/" : w.chains[chain]?.faucet} target="_blank">faucet</a>
               </div>
               <hr />
-              <p style={{ color: "var(--dim)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>Nothing happens on Sui when you receive. The address is a pure function of the dWallet's public key; funds land on {chain === "eth" ? "Ethereum" : "Bitcoin"} like any other address.</p>
+              <p style={{ color: "var(--dim)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>Nothing happens on Sui when you receive. The address is a pure function of the dWallet's public key.</p>
             </div>
           )}
 
           {view === "send" && (
             <div className="card">
-              <div className="kicker">send · ethereum sepolia</div>
+              <div className="row" style={{ marginBottom: 10, flexWrap: "wrap" }}>{evmKeys.map((k) => <button key={k} className={"tab " + (chain === k ? "on" : "")} onClick={() => setChain(k)}>{w.chains[k].label.split(" · ")[0]}</button>)}</div>
+              <div className="kicker">send · {w.chains[chain]?.label ?? "ethereum · sepolia"}</div>
               <div style={{ marginTop: 12 }}>
                 <input className="input" placeholder="0x recipient" value={to} onChange={(e) => setTo(e.target.value)} />
                 <div className="row" style={{ marginTop: 8 }}>
                   <input className="input" style={{ width: 180 }} value={amount} onChange={(e) => setAmount(e.target.value)} />
-                  <span style={{ color: "var(--mute)", fontSize: 12 }}>ETH · balance {Number(w.balances.sepoliaEth).toFixed(5)}</span>
+                  <span style={{ color: "var(--mute)", fontSize: 12 }}>{w.chains[chain]?.symbol} · balance {fmt(w.balances.evm[chain] ?? "0")}</span>
                   <span style={{ flex: 1 }} />
                   <button className="btn" onClick={send} disabled={busy || !to}>{busy ? "signing with ika…" : "sign with ika and send"}</button>
                 </div>
               </div>
-              {txHash && <div style={{ marginTop: 12 }}><a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank">view on etherscan →</a></div>}
+              {txHash && <div style={{ marginTop: 12 }}><a href={txExplorer ?? "#"} target="_blank">view on explorer →</a></div>}
               <hr />
               <p style={{ color: "var(--dim)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>The transaction is built here and hashed. The Ika network and the operator produce the ECDSA signature together; the recovery bit is found by matching your address; then it is broadcast. At no point does a private key exist.</p>
             </div>

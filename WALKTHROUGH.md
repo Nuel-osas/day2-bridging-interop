@@ -113,9 +113,11 @@ cd ika-wallet && pnpm install && pnpm dev          # http://localhost:3005
 Live, in this order:
 1. Sign in with Gmail (or type any email if Google is not configured).
 2. Watch the log: distributed key generation on Ika, then "dWallet active". About 40 s. The page shows
-   an Ethereum address and a Bitcoin address, both derived from the same secp256k1 key.
+   one EVM address live on seven testnets (Ethereum, Base, Arbitrum, Optimism, Polygon, Avalanche, BNB)
+   and a Bitcoin address, all derived from the same secp256k1 key. Solana, NEAR and Cardano would need a
+   second dWallet on ed25519; the card says so.
 3. Receive: paste the Ethereum address into a Sepolia faucet, or send a little Sepolia ETH from any wallet.
-4. Send: enter a recipient and amount, click "Sign with Ika and send". The log shows the presign, the
+4. Send: pick any of the seven EVM networks, enter a recipient and amount, click "sign with ika and send". The log shows the presign, the
    network's half of the signature, and the broadcast. Open the Etherscan link.
 5. Open `lib/ika.ts` on the projector: registerEncryptionKey, requestDWalletDKGWithPublicUserShare,
    requestGlobalPresign, approveMessage + requestSign. Then `lib/eth.ts`: the unsigned EIP-1559 tx is
