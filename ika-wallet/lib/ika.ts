@@ -40,10 +40,32 @@ export function deriveAddresses(pub: Uint8Array) {
 function deps(log: (s: string) => void = () => {}) { return { ika: GI.ikaClient, ikaCoin: IKA_COIN, exec, evData, log }; }
 /** Fire and forget: keep the shared presign pool topped up. */
 const dwCache: Map<string, any> = GI.dw;
+
+// Testnet IKA comes from an on-chain exchange (1 SUI = 10 IKA). Keep the operator's IKA coin above a floor.
+const IKA_TYPE = "0x1f26bb2f711ff82dcda4d02c77d5123089cb7f8418751474b9fb744ce031526a::ika::IKA";
+const EXCHANGE_PKG = "0x5d2fd4d021b617a998373b4dfec563adb60b1b47be2a77572c3ff158083e9f89";
+const EXCHANGE_OBJ = "0xb2ba36b1a5927e3f070240a3dfccdeac033a756bf265aa1401037eb300d40d66";
+export async function ensureIka(log?: (s: string) => void, floorIka = Number(process.env.IKA_FLOOR ?? 30), buySui = Number(process.env.IKA_BUY_SUI ?? 5)) {
+  try {
+    const me = operator().toSuiAddress();
+    const [ika, suiBal]: any[] = await Promise.all([sui.core.getBalance({ owner: me, coinType: IKA_TYPE }), sui.core.getBalance({ owner: me, coinType: "0x2::sui::SUI" })]);
+    const ikaAmt = Number(ika.balance?.balance ?? ika.balance?.totalBalance ?? 0) / 1e9, suiAmt = Number(suiBal.balance?.balance ?? suiBal.balance?.totalBalance ?? 0) / 1e9;
+    if (ikaAmt >= floorIka) return;
+    if (suiAmt < buySui + 1) { log?.(`IKA low (${ikaAmt.toFixed(1)}) and not enough SUI to buy more (${suiAmt.toFixed(2)} SUI)`); return; }
+    log?.(`IKA low (${ikaAmt.toFixed(1)}); buying ${buySui * 10} IKA with ${buySui} SUI from the exchange`);
+    const tx = new Transaction();
+    const [c] = tx.splitCoins(tx.gas, [tx.pure.u64(BigInt(buySui * 1e9))]);
+    const bought = tx.moveCall({ target: `${EXCHANGE_PKG}::ika_exchange::exchange_all_for_ika`, arguments: [tx.object(EXCHANGE_OBJ), c] });
+    tx.mergeCoins(tx.object(IKA_COIN()), [bought]);
+    await exec(tx);
+    log?.("IKA refuelled");
+  } catch (e: any) { log?.("IKA top-up failed: " + String(e.message ?? e).slice(0, 80)); }
+}
 async function protocolParams(c: IkaClient, dw: any) { if (!GI.pp) GI.pp = await c.getProtocolPublicParameters(dw); return GI.pp; }
 export async function warmPool(log?: (s: string) => void, wallet?: Wallet) {
   const c = await ika(); const d = deps(log);
   void (async () => {
+    try { await ensureIka(log); } catch {}
     try { await keys(); } catch {}
     try { await warmPresignObjects(d); } catch {}
     try { if (wallet?.dwalletId) { const dw = await c.getDWalletInParticularState(wallet.dwalletId, "Active"); dwCache.set(wallet.dwalletId, dw); await protocolParams(c, dw); } } catch {}
@@ -61,6 +83,7 @@ export async function getOrCreateWallet(user: string, log: (s: string) => void =
   const existing = store.get(user); if (existing && existing.status === "active") return existing;
   const c = await ika(); const k = await keys(); const me = operator().toSuiAddress();
   await ensureEncryptionKey();
+  await ensureIka(log);
   log("running distributed key generation on Ika");
   const sid = createRandomSessionIdentifier();
   const dkg = await prepareDKGAsync(c, curve, k, sid, me);
@@ -102,6 +125,7 @@ export async function ensurePresign(w: Wallet, log: (s: string) => void = () => 
 /** Sign `message` with the dWallet using KECCAK256 (Ethereum). Returns 64-byte r||s. Consumes the presign. */
 export async function signKeccak(w: Wallet, message: Uint8Array, log: (s: string) => void = () => {}): Promise<Uint8Array> {
   const c = await ika(); const k = await keys();
+  await ensureIka(log);
   let presign: any; let presignId: string;
   const ready = await takeReady(deps(log));
   if (ready) { presign = ready.presign; presignId = ready.presignId; log("presign taken from the pool (bought ahead of time)"); }
