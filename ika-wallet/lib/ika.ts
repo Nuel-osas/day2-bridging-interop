@@ -9,6 +9,8 @@ import * as bitcoin from "bitcoinjs-lib";
 import { sui, operator } from "./sui";
 import { store, type Wallet } from "./store";
 import { takeReady, refill, adoptOrphans, warmPresignObjects } from "./presignPool";
+import { hasDb, withLock, LOCK_SUI_EXEC } from "./db";
+import { after } from "next/server";
 
 const curve = Curve.SECP256K1;
 const IKA_COIN = () => { const c = process.env.IKA_COIN_ID; if (!c) throw new Error("IKA_COIN_ID not set"); return c; };
@@ -23,14 +25,26 @@ async function keys(c: Curve = curve) {
   if (!GI.keys) GI.keys = await UserShareEncryptionKeys.fromRootSeedKey(seed, curve);
   return GI.keys as UserShareEncryptionKeys;
 }
+/** Keep work alive after the response on Vercel; plain fire-and-forget elsewhere. */
+export function background(p: Promise<any>) { try { after(() => p.catch(() => {})); } catch { void p.catch(() => {}); } }
+
 async function exec(tx: Transaction, log?: (s: string) => void) {
+  if (!hasDb()) return execNow(tx, log);
+  const t0 = Date.now();
+  return withLock(LOCK_SUI_EXEC, async () => { const waited = Date.now() - t0; if (waited > 500) log?.(`waited ${(waited / 1000).toFixed(1)}s for another transaction to finish`); return execNow(tx, log); });
+}
+async function execNow(tx: Transaction, log?: (s: string) => void) {
   const kp = operator(); tx.setSender(kp.toSuiAddress()); tx.setGasBudget(500_000_000n);
   const t0 = Date.now(); const bytes = await tx.build({ client: sui }); log?.(`sui tx built in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   (tx as any).__builtAt = Date.now();
   const { signature } = await kp.signTransaction(bytes);
   const r: any = await sui.core.executeTransaction({ transaction: bytes, signatures: [signature], include: { effects: true, events: true } });
   log?.(`sui tx executed in ${((Date.now() - t0) / 1000).toFixed(1)}s total`);
-  const t = r.Transaction ?? r.transaction ?? r; if (t.effects?.status?.success === false) throw new Error(JSON.stringify(t.effects.status)); return t;
+  const t = r.Transaction ?? r.transaction ?? r; if (t.effects?.status?.success === false) throw new Error(JSON.stringify(t.effects.status));
+  // Other instances build their next transaction against the fullnode: make sure it has seen this one before the lock is released,
+  // or they resolve stale object versions for the IKA coin and gas and validators reject the transaction as equivocation.
+  if (hasDb() && t.digest) { try { await sui.core.waitForTransaction({ digest: t.digest, timeout: 15_000 } as any); } catch {} }
+  return t;
 }
 const evData = (t: any, re: RegExp) => { const e = (t.events ?? []).find((x: any) => re.test(x.eventType ?? "")); return e?.json?.event_data ?? {}; };
 
@@ -72,7 +86,8 @@ export async function warmPool(log?: (s: string) => void, wallet?: Wallet) {
     try { await keys(); } catch {}
     try { await warmPresignObjects(d); } catch {}
     try { if (wallet?.dwalletId) { const dw = await c.getDWalletInParticularState(wallet.dwalletId, "Active"); dwCache.set(wallet.dwalletId, dw); await protocolParams(c, dw); } } catch {}
-    void refill(d);
+    try { if (wallet?.sol?.dwalletId) { await keys(Curve.ED25519); const dw = await c.getDWalletInParticularState(wallet.sol.dwalletId, "Active"); dwCache.set(wallet.sol.dwalletId, dw); await c.getProtocolPublicParameters(dw); } } catch {}
+    background(refill(d)); background(refill(d, "ed"));
     try { await adoptOrphans(d); } catch {}
   })();
 }
@@ -83,7 +98,7 @@ export async function ensureEncryptionKey() {
 }
 
 export async function getOrCreateWallet(user: string, log: (s: string) => void = () => {}): Promise<Wallet> {
-  const existing = store.get(user); if (existing && existing.status === "active") return existing;
+  const existing = await store.get(user); if (existing && existing.status === "active") return existing;
   const c = await ika(); const k = await keys(); const me = operator().toSuiAddress();
   await ensureEncryptionKey();
   await ensureIka(log);
@@ -99,14 +114,14 @@ export async function getOrCreateWallet(user: string, log: (s: string) => void =
   const t = await exec(tx);
   const ed = evData(t, /DKGRequestEvent/);
   const w: Wallet = { user, dwalletId: ed.dwallet_id, dwalletCapId: ed.dwallet_cap_id, publicKey: "", ethAddress: "", btcAddress: "", createdAt: new Date().toISOString(), status: "creating" };
-  store.put(w);
+  await store.put(w);
   log("waiting for the network to finish DKG");
   const dw: any = await c.getDWalletInParticularState(w.dwalletId, "Active");
   const pub = await publicKeyFromDWalletOutput(curve, Uint8Array.from(dw.state.Active.public_output));
   Object.assign(w, deriveAddresses(pub), { publicKey: Buffer.from(pub).toString("hex"), status: "active" });
-  store.put(w);
+  await store.put(w);
   log(`dWallet active: ${w.ethAddress}`);
-  void refill(deps());   // buy a presign now so the first send is instant
+  background(refill(deps()));   // buy a presign now so the first send is instant
   return w;
 }
 
@@ -121,7 +136,7 @@ export async function ensurePresign(w: Wallet, log: (s: string) => void = () => 
   const t = await exec(tx);
   const presignId = evData(t, /PresignRequestEvent/).presign_id;
   await c.getPresignInParticularState(presignId, "Completed", { timeout: 120_000, interval: 250 });
-  w.presignId = presignId; store.put(w);
+  w.presignId = presignId; await store.put(w);
   return presignId;
 }
 
@@ -144,8 +159,8 @@ export async function signKeccak(w: Wallet, message: Uint8Array, log: (s: string
   log("sign request on Sui confirmed; waiting for the network MPC round");
   const sign: any = await c.getSignInParticularState(signId, curve, SignatureAlgorithm.ECDSASecp256k1, "Completed", { timeout: 120_000, interval: 100 });
   log("signature received from the network");
-  w.presignId = undefined; store.put(w);
-  void refill(deps());   // replace what we just used, in the background
+  w.presignId = undefined; await store.put(w);
+  background(refill(deps()));   // replace what we just used, in the background
   return Uint8Array.from(sign.state.Completed.signature);
 }
 
@@ -167,14 +182,14 @@ export async function ensureSolanaWallet(w: Wallet, log: (s: string) => void = (
   tx.transferObjects([cap], me);
   const t = await exec(tx);
   const ed = evData(t, /DKGRequestEvent/);
-  w.sol = { dwalletId: ed.dwallet_id, dwalletCapId: ed.dwallet_cap_id, publicKey: "", address: "", status: "creating" }; store.put(w);
+  w.sol = { dwalletId: ed.dwallet_id, dwalletCapId: ed.dwallet_cap_id, publicKey: "", address: "", status: "creating" }; await store.put(w);
   log("waiting for the network to finish the ed25519 DKG");
   const dw: any = await c.getDWalletInParticularState(w.sol.dwalletId, "Active");
   const pub = await publicKeyFromDWalletOutput(Curve.ED25519, Uint8Array.from(dw.state.Active.public_output));
-  w.sol.publicKey = Buffer.from(pub).toString("hex"); w.sol.address = bs58.encode(Buffer.from(pub)); w.sol.status = "active"; store.put(w);
+  w.sol.publicKey = Buffer.from(pub).toString("hex"); w.sol.address = bs58.encode(Buffer.from(pub)); w.sol.status = "active"; await store.put(w);
   dwCache.set(w.sol.dwalletId, dw);
   log(`solana address ${w.sol.address}`);
-  void presignEd(w, log).catch(() => {});
+  background(refill(deps(), "ed"));
   return w.sol;
 }
 
@@ -188,20 +203,23 @@ async function presignEd(w: Wallet, log: (s: string) => void = () => {}) {
   const t = await exec(tx);
   const presignId = evData(t, /PresignRequestEvent/).presign_id as string;
   await c.getPresignInParticularState(presignId, "Completed", { timeout: 120_000, interval: 250 });
-  w.sol!.presignId = presignId; store.put(w);
+  w.sol!.presignId = presignId; await store.put(w);
   return presignId;
 }
 
 /** EdDSA signature (64 bytes) over `message` for the ed25519 dWallet. */
-export async function signEdDSA(w: Wallet, message: Uint8Array, log: (s: string) => void = () => {}): Promise<Uint8Array> {
+export async function signEdDSA(w: Wallet, messageOrBuild: Uint8Array | (() => Promise<Uint8Array>), log: (s: string) => void = () => {}): Promise<Uint8Array> {
   if (!w.sol || w.sol.status !== "active") throw new Error("enable solana first");
   const c = await ika(); const k = await keys(Curve.ED25519);
   await ensureIka(log);
-  const had = !!w.sol.presignId;
-  const presignId = await presignEd(w, log); log(had ? "ed25519 presign ready" : "ed25519 presign bought");
-  const presign: any = await c.getPresignInParticularState(presignId, "Completed", { timeout: 120_000, interval: 250 });
+  let presign: any; let presignId: string;
+  const ready = await takeReady(deps(log), "ed");
+  if (ready) { presign = ready.presign; presignId = ready.presignId; log("ed25519 presign taken from the pool"); }
+  else { const had = !!w.sol.presignId; presignId = await presignEd(w, log); log(had ? "ed25519 presign ready" : "ed25519 presign bought"); presign = await c.getPresignInParticularState(presignId, "Completed", { timeout: 120_000, interval: 250 }); }
   const dw: any = dwCache.get(w.sol.dwalletId) ?? await c.getDWalletInParticularState(w.sol.dwalletId, "Active"); dwCache.set(w.sol.dwalletId, dw);
   await c.getProtocolPublicParameters(dw);
+  // Build the message last: a Solana blockhash only lives about a minute, so warm-up must not eat into it.
+  const message = typeof messageOrBuild === "function" ? await messageOrBuild() : messageOrBuild;
   log("inputs ready; requestSign computes the operator half (EdDSA) and builds the Sui call");
   const tx = new Transaction(); const it = new IkaTransaction({ ikaClient: c, transaction: tx, userShareEncryptionKeys: k });
   const approval = it.approveMessage({ dWalletCap: w.sol.dwalletCapId, curve: Curve.ED25519, signatureAlgorithm: SignatureAlgorithm.EdDSA, hashScheme: Hash.SHA512, message } as any);
@@ -211,7 +229,7 @@ export async function signEdDSA(w: Wallet, message: Uint8Array, log: (s: string)
   log("sign request on Sui confirmed; waiting for the network MPC round");
   const sign: any = await c.getSignInParticularState(signId, Curve.ED25519, SignatureAlgorithm.EdDSA, "Completed", { timeout: 120_000, interval: 100 });
   log("signature received from the network");
-  w.sol.presignId = undefined; store.put(w);
-  void presignEd(w).catch(() => {});
+  w.sol.presignId = undefined; await store.put(w);
+  background(refill(deps(), "ed"));
   return Uint8Array.from(sign.state.Completed.signature);
 }

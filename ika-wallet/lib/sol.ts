@@ -21,12 +21,15 @@ export async function sendSol(w: Wallet, to: string, amountSol: string, log: (s:
   const lamports = Math.round(Number(amountSol) * LAMPORTS_PER_SOL);
   const bal = await solConn.getBalance(from);
   if (bal < lamports + 5000) throw new Error(`insufficient devnet SOL: balance ${(bal / LAMPORTS_PER_SOL).toFixed(6)}, need ${amountSol} plus fee. Use "airdrop 1 SOL" or faucet.solana.com first.`);
-  const { blockhash, lastValidBlockHeight } = await solConn.getLatestBlockhash("confirmed");
-  const tx = new SolTx({ feePayer: from, blockhash, lastValidBlockHeight });
-  tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(to), lamports }));
-  const message = tx.serializeMessage();
-  log(`built solana transfer, ${amountSol} SOL to ${to}, blockhash ${blockhash.slice(0, 8)}…`);
-  const sig = await signEdDSA(w, new Uint8Array(message), log);
+  let tx!: SolTx; let blockhash!: string; let lastValidBlockHeight!: number;
+  log(`solana transfer, ${amountSol} SOL to ${to}; blockhash is fetched right before signing (it only lives about a minute)`);
+  const sig = await signEdDSA(w, async () => {
+    ({ blockhash, lastValidBlockHeight } = await solConn.getLatestBlockhash("finalized"));
+    tx = new SolTx({ feePayer: from, blockhash, lastValidBlockHeight });
+    tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: new PublicKey(to), lamports }));
+    log(`built solana message with blockhash ${blockhash.slice(0, 8)}…`);
+    return new Uint8Array(tx.serializeMessage());
+  }, log);
   tx.addSignature(from, Buffer.from(sig));
   if (!tx.verifySignatures()) throw new Error("signature did not verify against the dWallet public key");
   log("broadcasting to solana devnet");
