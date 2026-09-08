@@ -60,7 +60,7 @@ const [cap] = await ikaTx.requestDWalletDKG({
   curve, dkgRequestInput,
   sessionIdentifier: ikaTx.registerSessionIdentifier(identifier),
   ikaCoin: tx.object(process.env.IKA_COIN_ID),
-  suiCoin: tx.splitCoins(tx.gas, [tx.pure.u64(100_000_000)]),
+  suiCoin: tx.gas,
   dwalletNetworkEncryptionKeyId: key.id,
 });
 tx.transferObjects([cap], me);

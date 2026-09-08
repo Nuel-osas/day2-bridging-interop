@@ -20,6 +20,9 @@ importers:
       '@mysten/sui':
         specifier: ^2.29.0
         version: 2.29.0(typescript@6.0.3)
+      ethers:
+        specifier: '6'
+        version: 6.17.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       viem:
         specifier: ^2.30.0
         version: 2.56.3(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
@@ -656,7 +659,7 @@ snapshots:
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 12.20.55
+      '@types/node': 26.5.0
 
   '@types/node@12.20.55': {}
 
@@ -672,7 +675,7 @@ snapshots:
 
   '@types/ws@7.4.7':
     dependencies:
-      '@types/node': 12.20.55
+      '@types/node': 26.5.0
 
   '@types/ws@8.18.1':
     dependencies:

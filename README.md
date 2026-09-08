@@ -18,7 +18,9 @@ designs for builders.
 | `scripts/06-mayan-out-of-sui.mjs` | The live intent fill: USDC on Sui to USDC on Base through Mayan, polling the explorer. Measured: 20 seconds. |
 | `scripts/07-lifi-swap-on-sui.mjs` | Same-chain swap on Sui through LI.FI; it returns PTB bytes you sign. |
 | `scripts/03-sui-bridge-watch.mjs` | Read the native Sui Bridge's deposits, approvals and claims from mainnet events. |
-| `scripts/04-ika-dwallet.mjs` | Create a dWallet on Ika and sign for another chain from Sui. |
+| `scripts/04-ika-dwallet.mjs` | Ika read-only view: coordinator, epoch, encryption key, the write path as a list. |
+| `scripts/09-ika-eth-wallet.mjs` | Ika end to end on testnet: shared dWallet, Ethereum address, presign, sign, address recovery. Verified. |
+| `docs/ika-on-testnet.md` | How to get IKA (the faucet is an on-chain exchange), fees observed, and the gotchas. |
 | `connect-app/` | Wormhole Connect widget, Sepolia to Sui testnet, embedded in a page. |
 | `docs/how-intent-bridging-works.md` | The mechanism: intent, auction, fill, proof, settlement, and who holds the risk. |
 | `docs/research/` | The five sourced reports behind the class: Sui Bridge internals, CCTP on Sui, builder interop (Ika, Hashi, messaging), bridge security, intent bridging. Every claim dated and linked. |
