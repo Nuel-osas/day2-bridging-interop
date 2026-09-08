@@ -1,7 +1,7 @@
 // Server side Ika: one operator Sui key holds every DWalletCap and pays IKA + SUI.
 // Users are identified by their login; each gets a shared dWallet (network signs for the cap holder).
 import { getNetworkConfig, IkaClient, IkaTransaction, Curve, Hash, SignatureAlgorithm, UserShareEncryptionKeys,
-  createRandomSessionIdentifier, prepareDKGAsync, publicKeyFromDWalletOutput, createUserSignMessageWithPublicOutput } from "@ika.xyz/sdk";
+  createRandomSessionIdentifier, prepareDKGAsync, publicKeyFromDWalletOutput } from "@ika.xyz/sdk";
 import { Transaction } from "@mysten/sui/transactions";
 import { computeAddress } from "ethers";
 import * as bitcoin from "bitcoinjs-lib";
@@ -94,7 +94,7 @@ export async function ensurePresign(w: Wallet, log: (s: string) => void = () => 
   tx.transferObjects([ref], me);
   const t = await exec(tx);
   const presignId = evData(t, /PresignRequestEvent/).presign_id;
-  await c.getPresignInParticularState(presignId, "Completed");
+  await c.getPresignInParticularState(presignId, "Completed", { timeout: 120_000, interval: 250 });
   w.presignId = presignId; store.put(w);
   return presignId;
 }
@@ -107,17 +107,15 @@ export async function signKeccak(w: Wallet, message: Uint8Array, log: (s: string
   if (ready) { presign = ready.presign; presignId = ready.presignId; log("presign taken from the pool (bought ahead of time)"); }
   else { presignId = await ensurePresign(w, log); presign = await c.getPresignInParticularState(presignId, "Completed"); }
   const dw: any = dwCache.get(w.dwalletId) ?? await c.getDWalletInParticularState(w.dwalletId, "Active"); dwCache.set(w.dwalletId, dw);
-  const pp = await protocolParams(c, dw);
-  log("protocol parameters ready; computing the operator half in WASM");
-  const userSig = await createUserSignMessageWithPublicOutput(pp, Uint8Array.from(dw.state.Active.public_output), Uint8Array.from(dw.public_user_secret_key_share), Uint8Array.from(presign.state.Completed.presign), message, Hash.KECCAK256, SignatureAlgorithm.ECDSASecp256k1, curve);
-  log("operator half computed locally (WASM); submitting the sign request to Sui");
+  await protocolParams(c, dw);   // warm the SDK cache; requestSign computes the operator half itself
+  log("inputs ready; requestSign computes the operator half (WASM) and builds the Sui call");
   const tx = new Transaction(); const it = new IkaTransaction({ ikaClient: c, transaction: tx, userShareEncryptionKeys: k });
   const approval = it.approveMessage({ dWalletCap: w.dwalletCapId, curve, signatureAlgorithm: SignatureAlgorithm.ECDSASecp256k1, hashScheme: Hash.KECCAK256, message });
-  await it.requestSign({ dWallet: dw, messageApproval: approval, hashScheme: Hash.KECCAK256, verifiedPresignCap: it.verifyPresignCap({ presign }), presign, message, signatureScheme: SignatureAlgorithm.ECDSASecp256k1, userSignMessage: userSig, ikaCoin: tx.object(IKA_COIN()), suiCoin: tx.gas } as any);
+  await it.requestSign({ dWallet: dw, messageApproval: approval, hashScheme: Hash.KECCAK256, verifiedPresignCap: it.verifyPresignCap({ presign }), presign, message, signatureScheme: SignatureAlgorithm.ECDSASecp256k1, ikaCoin: tx.object(IKA_COIN()), suiCoin: tx.gas } as any);
   const t = await exec(tx, log);
   const signId = evData(t, /SignRequestEvent/).sign_id;
   log("sign request on Sui confirmed; waiting for the network MPC round");
-  const sign: any = await c.getSignInParticularState(signId, curve, SignatureAlgorithm.ECDSASecp256k1, "Completed");
+  const sign: any = await c.getSignInParticularState(signId, curve, SignatureAlgorithm.ECDSASecp256k1, "Completed", { timeout: 120_000, interval: 100 });
   log("signature received from the network");
   w.presignId = undefined; store.put(w);
   void refill(deps());   // replace what we just used, in the background

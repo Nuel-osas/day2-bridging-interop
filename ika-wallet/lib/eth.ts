@@ -24,7 +24,7 @@ export async function evmBalances(address: string): Promise<Record<EvmKey, strin
 
 export async function sendNative(w: Wallet, key: EvmKey, to: string, amount: string, log: (s: string) => void) {
   const c = evm(key); const from = w.ethAddress as Hex; const cfg = EVM[key];
-  const [nonce, fees] = await Promise.all([c.getTransactionCount({ address: from }), c.estimateFeesPerGas()]);
+  const [nonce, fees] = await Promise.all([c.getTransactionCount({ address: from, blockTag: "pending" }), c.estimateFeesPerGas()]);
   const tx: TransactionSerializableEIP1559 = { chainId: cfg.chain.id, type: "eip1559", nonce, to: to as Hex, value: parseEther(amount), gas: 21_000n, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas };
   const unsigned = serializeTransaction(tx);
   log(`built EIP-1559 tx on ${cfg.label}, nonce ${nonce}, ${amount} ${cfg.symbol} to ${to}`);

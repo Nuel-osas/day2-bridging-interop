@@ -54,7 +54,7 @@ async function requestOne(d: Deps): Promise<string> {
   tx.transferObjects([ref], me);
   const t = await d.exec(tx);
   const presignId = d.evData(t, /PresignRequestEvent/).presign_id as string;
-  const p = await d.ika.getPresignInParticularState(presignId, "Completed");
+  const p = await d.ika.getPresignInParticularState(presignId, "Completed", { timeout: 120_000, interval: 250 });
   presignObjects.set(presignId, p);
   const pool = load(); pool.push({ presignId, requestedAt: new Date().toISOString() }); save(pool);
   return presignId;
