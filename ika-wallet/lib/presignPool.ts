@@ -16,6 +16,7 @@ type Entry = { presignId: string; requestedAt: string };
 const load = (): Entry[] => (existsSync(FILE) ? JSON.parse(readFileSync(FILE, "utf8")) : []);
 const save = (e: Entry[]) => { mkdirSync(join(process.cwd(), "data"), { recursive: true }); writeFileSync(FILE, JSON.stringify(e, null, 2)); };
 let refilling: Promise<void> | null = null;
+const presignObjects = new Map<string, any>();   // presignId -> Completed presign object, fetched once
 let adoptedOnce = false;
 
 type Deps = { ika: any; ikaCoin: () => string; exec: (tx: Transaction) => Promise<any>; evData: (t: any, re: RegExp) => any; log?: (s: string) => void };
@@ -25,6 +26,7 @@ export async function takeReady(d: Deps): Promise<{ presignId: string; presign: 
   const pool = load();
   while (pool.length) {
     const e = pool.shift()!; save(pool);
+    const cached = presignObjects.get(e.presignId); if (cached) { presignObjects.delete(e.presignId); return { presignId: e.presignId, presign: cached }; }
     try { const p: any = await d.ika.getPresign(e.presignId); if (p?.state?.Completed) return { presignId: e.presignId, presign: p }; } catch {}
   }
   return null;
@@ -52,9 +54,15 @@ async function requestOne(d: Deps): Promise<string> {
   tx.transferObjects([ref], me);
   const t = await d.exec(tx);
   const presignId = d.evData(t, /PresignRequestEvent/).presign_id as string;
-  await d.ika.getPresignInParticularState(presignId, "Completed");
+  const p = await d.ika.getPresignInParticularState(presignId, "Completed");
+  presignObjects.set(presignId, p);
   const pool = load(); pool.push({ presignId, requestedAt: new Date().toISOString() }); save(pool);
   return presignId;
+}
+
+/** Fetch the presign objects for everything already in the pool so the send path does not. */
+export async function warmPresignObjects(d: Deps) {
+  for (const e of load()) { if (presignObjects.has(e.presignId)) continue; try { const p: any = await d.ika.getPresign(e.presignId); if (p?.state?.Completed) presignObjects.set(e.presignId, p); } catch {} }
 }
 
 /** Presign caps the operator already owns but never consumed: paid for, so use them first. */

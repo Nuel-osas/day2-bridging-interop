@@ -7,7 +7,7 @@ import { computeAddress } from "ethers";
 import * as bitcoin from "bitcoinjs-lib";
 import { sui, operator } from "./sui";
 import { store, type Wallet } from "./store";
-import { takeReady, refill, adoptOrphans } from "./presignPool";
+import { takeReady, refill, adoptOrphans, warmPresignObjects } from "./presignPool";
 
 const curve = Curve.SECP256K1;
 const IKA_COIN = () => { const c = process.env.IKA_COIN_ID; if (!c) throw new Error("IKA_COIN_ID not set"); return c; };
@@ -22,7 +22,7 @@ async function keys() {
   return keysCache;
 }
 async function exec(tx: Transaction) {
-  const kp = operator(); tx.setSender(kp.toSuiAddress());
+  const kp = operator(); tx.setSender(kp.toSuiAddress()); tx.setGasBudget(500_000_000n);
   const bytes = await tx.build({ client: sui });
   (tx as any).__builtAt = Date.now();
   const { signature } = await kp.signTransaction(bytes);
@@ -40,11 +40,14 @@ export function deriveAddresses(pub: Uint8Array) {
 function deps(log: (s: string) => void = () => {}) { return { ika: ikaClient!, ikaCoin: IKA_COIN, exec, evData, log }; }
 /** Fire and forget: keep the shared presign pool topped up. */
 const dwCache = new Map<string, any>();
+let ppCache: any = null;
+async function protocolParams(c: IkaClient, dw: any) { if (!ppCache) ppCache = await c.getProtocolPublicParameters(dw); return ppCache; }
 export async function warmPool(log?: (s: string) => void, wallet?: Wallet) {
   const c = await ika(); const d = deps(log);
   void (async () => {
     try { await adoptOrphans(d); } catch {}
-    try { if (wallet?.dwalletId) { const dw = await c.getDWalletInParticularState(wallet.dwalletId, "Active"); dwCache.set(wallet.dwalletId, dw); await c.getProtocolPublicParameters(dw); } } catch {}
+    try { if (wallet?.dwalletId) { const dw = await c.getDWalletInParticularState(wallet.dwalletId, "Active"); dwCache.set(wallet.dwalletId, dw); await protocolParams(c, dw); } } catch {}
+    try { await warmPresignObjects(d); } catch {}
     void refill(d);
   })();
 }
@@ -104,7 +107,7 @@ export async function signKeccak(w: Wallet, message: Uint8Array, log: (s: string
   if (ready) { presign = ready.presign; presignId = ready.presignId; log("presign taken from the pool (bought ahead of time)"); }
   else { presignId = await ensurePresign(w, log); presign = await c.getPresignInParticularState(presignId, "Completed"); }
   const dw: any = dwCache.get(w.dwalletId) ?? await c.getDWalletInParticularState(w.dwalletId, "Active"); dwCache.set(w.dwalletId, dw);
-  const pp = await c.getProtocolPublicParameters(dw);
+  const pp = await protocolParams(c, dw);
   log("protocol parameters ready; computing the operator half in WASM");
   const userSig = await createUserSignMessageWithPublicOutput(pp, Uint8Array.from(dw.state.Active.public_output), Uint8Array.from(dw.public_user_secret_key_share), Uint8Array.from(presign.state.Completed.presign), message, Hash.KECCAK256, SignatureAlgorithm.ECDSASecp256k1, curve);
   log("operator half computed locally (WASM); submitting the sign request to Sui");
